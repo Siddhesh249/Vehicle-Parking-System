@@ -1,0 +1,56 @@
+@startuml seq_exit_fare
+skinparam backgroundColor white
+skinparam defaultFontName Helvetica
+skinparam sequence {
+  ActorBorderColor #B30000
+  LifeLineBorderColor #B30000
+  ParticipantBorderColor #B30000
+  ParticipantBackgroundColor #FDEDED
+  ArrowColor #7A0000
+}
+skinparam databaseBackgroundColor #FDEDED
+skinparam databaseBorderColor #B30000
+skinparam shadowing false
+skinparam noteBackgroundColor #FFF6F6
+skinparam noteBorderColor #B30000
+
+title Vehicle Exit — Lookup, Fare Calculation & Spot Release\n(VPS-F-030..037)
+
+actor "Operator\n(Exit Gate)" as Op
+participant "Exit\nController" as EC
+participant "Fare\nService" as FS
+participant "Allocation\nService" as AS
+participant "Audit\nService" as AU
+database "MongoDB" as DB
+participant "Socket.io" as SK
+
+Op -> EC: GET /api/exit/lookup/:ticketId
+alt Ticket ID valid
+  EC -> DB: find entry record by ticketId
+  DB --> EC: entry record found
+else Ticket lost
+  Op -> EC: GET /api/exit/search?plate=...
+  EC -> DB: find active record by plate
+  DB --> EC: entry record found\n(penalty flag = true)
+end
+
+EC -> FS: calculateFare(entryTime, now, vehicleType, penaltyFlag)
+FS -> FS: duration = exit - entry\n(exact, no rounding)
+FS -> FS: apply tiered rate table\n(first hour free, then rising tiers)
+FS -> FS: add lost-ticket penalty\nif applicable
+FS --> EC: {fare, duration, breakdown}
+
+EC -> AS: releaseSpot(spotId)
+AS -> DB: findOneAndUpdate(spotId, {status:"free"})
+DB --> AS: ok
+
+EC -> DB: insert transaction record\n(plate, times, duration, fare, gate, operator)
+EC -> AU: logAction("exit", operatorId, spotId)
+AU -> DB: append audit entry
+
+EC -> SK: emit spot:update (spotId -> free)
+SK -> SK: broadcast to all sessions
+
+EC --> Op: 200 OK {fare, receipt}
+
+@enduml

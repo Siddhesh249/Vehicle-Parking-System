@@ -1,0 +1,50 @@
+@startuml seq_overstay_force_release
+skinparam backgroundColor white
+skinparam defaultFontName Helvetica
+skinparam sequence {
+  ActorBorderColor #B30000
+  LifeLineBorderColor #B30000
+  ParticipantBorderColor #B30000
+  ParticipantBackgroundColor #FDEDED
+  ArrowColor #7A0000
+}
+skinparam databaseBackgroundColor #FDEDED
+skinparam databaseBorderColor #B30000
+skinparam shadowing false
+skinparam noteBackgroundColor #FFF6F6
+skinparam noteBorderColor #B30000
+
+title Overstay Escalation & Admin Force-Release\n(VPS-F-040..043)
+
+actor "Gate Operator" as Op
+actor "Admin" as Admin
+participant "Entry/Exit\nController" as C
+participant "Allocation\nService" as AS
+participant "Fare\nService" as FS
+participant "Audit\nService" as AU
+database "MongoDB" as DB
+participant "Socket.io" as SK
+
+note over C, DB: Vehicle duration crosses the configured\noverstay threshold (VPS-F-040)
+
+Op -> C: POST /api/overstay/notify\n{vehicleId, gateId}
+C -> SK: emit overstay:alert\n(to "admin" room)
+SK -> Admin: real-time notification\n(ticket/plate, duration)
+
+Admin -> C: POST /api/admin/vehicles/:id/force-release
+C -> AS: forceRelease(spotId)
+AS -> DB: findOneAndUpdate(spotId, {status:"free"})
+DB --> AS: ok
+
+C -> FS: applyOverstayPenalty(vehicleId)
+FS --> C: updated fare incl. penalty
+
+C -> AU: logAction("force-release", adminId, spotId)
+AU -> DB: append audit entry
+
+C -> SK: emit spot:update (spotId -> free)
+SK -> SK: broadcast to all sessions
+
+C --> Admin: 200 OK {spotId, penaltyApplied}
+
+@enduml

@@ -1,0 +1,58 @@
+@startuml seq_entry_concurrent
+skinparam backgroundColor white
+skinparam defaultFontName Helvetica
+skinparam sequence {
+  ActorBorderColor #B30000
+  LifeLineBorderColor #B30000
+  ParticipantBorderColor #B30000
+  ParticipantBackgroundColor #FDEDED
+  ArrowColor #7A0000
+  BoxBorderColor #B30000
+}
+skinparam databaseBackgroundColor #FDEDED
+skinparam databaseBorderColor #B30000
+skinparam shadowing false
+skinparam noteBackgroundColor #FFF6F6
+skinparam noteBorderColor #B30000
+
+title Vehicle Entry — Concurrent Allocation Across Multiple Gates\n(VPS-F-012, VPS-F-013)
+
+actor "Operator\n(Entry-1)" as Op1
+actor "Operator\n(Entry-2)" as Op2
+participant "Entry\nController" as EC
+participant "Allocation\nService" as AS
+database "MongoDB" as DB
+participant "Socket.io" as SK
+participant "All Connected\nClients" as Clients
+
+par Entry-1 request (t=T1)
+  Op1 -> EC: POST /api/entry/vehicles\n{plate, type=4W, gateId=Entry-1}
+  EC -> AS: allocateSpot(4W, t=T1)
+else Entry-2 request (t=T2, near-simultaneous)
+  Op2 -> EC: POST /api/entry/vehicles\n{plate, type=4W, gateId=Entry-2}
+  EC -> AS: allocateSpot(4W, t=T2)
+end
+
+note over AS, DB: Requests processed FCFS by\nserver-received timestamp (T1 < T2)
+
+AS -> DB: findOneAndUpdate(\n {zone:"4W", status:"free"},\n {status:"reserved"})
+activate DB
+DB --> AS: Spot A12 (atomic match — T1's request)
+deactivate DB
+
+AS -> DB: findOneAndUpdate(\n {zone:"4W", status:"free"},\n {status:"reserved"})
+activate DB
+DB --> AS: Spot A13 (next available, no conflict)
+deactivate DB
+
+AS --> EC: {spotId: A12, ticketId: T-001}
+EC --> Op1: 200 OK {spot A12, Ticket T-001, QR}
+
+AS --> EC: {spotId: A13, ticketId: T-002}
+EC --> Op2: 200 OK {spot A13, Ticket T-002, QR}
+
+AS -> SK: emit spot:update (A12, A13)
+SK -> Clients: broadcast spot:update
+note right of Clients: Lot map turns A12 & A13 red\non every open session within 2s
+
+@enduml

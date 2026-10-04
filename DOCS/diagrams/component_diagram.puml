@@ -1,0 +1,92 @@
+@startuml component_diagram
+skinparam backgroundColor white
+skinparam defaultFontName Helvetica
+skinparam component {
+  BackgroundColor #FDEDED
+  BorderColor #B30000
+  FontColor #222222
+}
+skinparam package {
+  BackgroundColor white
+  BorderColor #B30000
+  FontColor #7A0000
+  FontStyle bold
+}
+skinparam database {
+  BackgroundColor #FDEDED
+  BorderColor #B30000
+}
+skinparam arrowColor #7A0000
+skinparam ArrowFontColor #444444
+skinparam shadowing false
+
+title Vehicle Parking System — Component Diagram
+
+package "React Frontend" {
+  [Entry Console\n(Entry-1 / Entry-2)] as EntryUI
+  [Exit Console\n(Exit-1 / Exit-2)] as ExitUI
+  [Admin Dashboard] as AdminUI
+  [Simulation Console\n(dev-only)] as SimUI
+}
+
+package "Express API Layer" {
+  [Auth Controller] as AuthC
+  [Entry Controller] as EntryC
+  [Exit Controller] as ExitC
+  [Admin Controller] as AdminC
+  [Audit Controller] as AuditC
+  [JWT Auth Middleware] as JWT
+}
+
+package "Business Logic" {
+  [Allocation Service] as Alloc
+  [Fare Service] as Fare
+  [Analytics Service] as Analytics
+  [Audit Service] as AuditSvc
+}
+
+[Socket.io\nReal-Time Layer] as Socket
+
+database "MongoDB" as Mongo {
+  [Vehicles / Spots]
+  [Transactions]
+  [Users]
+  [Audit Log]
+}
+
+EntryUI --> EntryC : REST
+ExitUI --> ExitC : REST
+AdminUI --> AdminC : REST
+AdminUI --> AuditC : REST
+EntryUI ..> AuthC : login
+ExitUI ..> AuthC : login
+AdminUI ..> AuthC : login
+SimUI ..> EntryC : synthetic traffic\n(dev-only)
+
+AuthC --> JWT
+EntryC --> JWT
+ExitC --> JWT
+AdminC --> JWT
+AuditC --> JWT
+
+EntryC --> Alloc
+ExitC --> Alloc
+ExitC --> Fare
+AdminC --> Analytics
+AdminC --> Alloc : force-release
+AuditC --> AuditSvc
+
+Alloc --> Mongo
+Fare --> Mongo
+Analytics --> Mongo
+AuditSvc --> Mongo
+
+Alloc --> Socket : state change
+Fare --> Socket : state change
+AuditSvc --> Socket : overstay alert
+
+Socket --> EntryUI : live broadcast
+Socket --> ExitUI : live broadcast
+Socket --> AdminUI : live broadcast
+
+@enduml
