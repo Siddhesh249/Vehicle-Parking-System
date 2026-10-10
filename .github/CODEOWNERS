@@ -1,0 +1,6 @@
+# Sprint 1 test cases are owned by the project lead.
+/client/tests/ @Siddhesh249
+/server/tests/ @Siddhesh249
+
+# Protect the ownership rules themselves.
+/.github/CODEOWNERS @Siddhesh249
