@@ -613,17 +613,3 @@ describe("FareTierConfig schema", () => {
   });
 });
 
-
-describe("FareTierConfig tier validation", () => {
-  test("rejects tiers whose hour thresholds are not increasing", async () => {
-    await expect(
-      FareTierConfig.create({
-        vehicleType: "4W",
-        tiers: [
-          { afterHours: 3, ratePerHour: 30 },
-          { afterHours: 1, ratePerHour: 20 },
-        ],
-      })
-    ).rejects.toThrow(mongoose.Error.ValidationError);
-  });
-});

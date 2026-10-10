@@ -339,3 +339,34 @@ describe("calculateFare — additional validation", () => {
     expect(calculateFare(entry, exit, "4W", {}, config)).toBe(70);
   });
 });
+
+describe("calculateFare — custom configuration validation", () => {
+  test("rejects a negative hourly rate", () => {
+    const { entry, exit } = makeTimes(120);
+    const config = {
+      "4W": {
+        firstHourFree: true,
+        tiers: [{ afterHours: 1, ratePerHour: -20 }],
+      },
+    };
+    expect(() => calculateFare(entry, exit, "4W", {}, config)).toThrow(
+      "Fare tier thresholds and rates must be non-negative numbers"
+    );
+  });
+
+  test("rejects duplicate tier thresholds", () => {
+    const { entry, exit } = makeTimes(120);
+    const config = {
+      "4W": {
+        firstHourFree: true,
+        tiers: [
+          { afterHours: 1, ratePerHour: 20 },
+          { afterHours: 1, ratePerHour: 30 },
+        ],
+      },
+    };
+    expect(() => calculateFare(entry, exit, "4W", {}, config)).toThrow(
+      "Fare tier thresholds must be unique"
+    );
+  });
+});

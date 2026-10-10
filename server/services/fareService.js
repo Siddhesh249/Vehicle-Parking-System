@@ -37,6 +37,35 @@ function getDurationHours(entryTimestamp, exitTimestamp) {
   return (exit - entry) / (60 * 60 * 1000);
 }
 
+function validateFareConfig(config) {
+  if (!config || !Array.isArray(config.tiers) || config.tiers.length === 0) {
+    throw new TypeError("A fare configuration must contain at least one tier");
+  }
+
+  const tiers = [...config.tiers].sort((a, b) => a.afterHours - b.afterHours);
+  for (let index = 0; index < tiers.length; index += 1) {
+    const tier = tiers[index];
+    if (
+      !Number.isFinite(tier.afterHours) ||
+      tier.afterHours < 0 ||
+      !Number.isFinite(tier.ratePerHour) ||
+      tier.ratePerHour < 0
+    ) {
+      throw new TypeError("Fare tier thresholds and rates must be non-negative numbers");
+    }
+    if (index > 0 && tier.afterHours === tiers[index - 1].afterHours) {
+      throw new TypeError("Fare tier thresholds must be unique");
+    }
+  }
+
+  for (const key of ["lostTicketPenalty", "overstayPenalty"]) {
+    if (config[key] !== undefined &&
+        (!Number.isFinite(config[key]) || config[key] < 0)) {
+      throw new TypeError(`${key} must be a non-negative number`);
+    }
+  }
+}
+
 function calculateBaseFare(durationHours, config) {
   const freeUntil = config.firstHourFree ? 1 : 0;
   if (durationHours <= freeUntil) return 0;
@@ -84,9 +113,7 @@ function calculateFare(
 
   const durationHours = getDurationHours(entryTimestamp, exitTimestamp);
   const config = customConfig[vehicleType] || DEFAULT_FARE_CONFIG[vehicleType];
-  if (!config || !Array.isArray(config.tiers)) {
-    throw new TypeError("A valid fare configuration is required");
-  }
+  validateFareConfig(config);
 
   let fare = calculateBaseFare(durationHours, config);
   if (options.lostTicket) {
