@@ -1,0 +1,99 @@
+name: CI — Unit & Integration Tests
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  # ────────────────────────────────────────────────────────────
+  # Server tests (Node/Express + supertest)
+  # Integration tests need a real MongoDB instance, so we spin
+  # one up as a service container.
+  # ────────────────────────────────────────────────────────────
+  server-tests:
+    name: Server — unit & integration tests
+    runs-on: ubuntu-latest
+
+    services:
+      mongodb:
+        image: mongo:8
+        ports:
+          - 27017:27017
+        # Create the app user inside the vehicle_parking database.
+        env:
+          MONGO_INITDB_ROOT_USERNAME: root
+          MONGO_INITDB_ROOT_PASSWORD: rootpassword
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 })'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      PORT: 5000
+      CLIENT_URL: http://localhost:5173
+      MONGO_USER: vps_app
+      MONGO_PASSWORD: VPS
+      MONGO_HOST: 127.0.0.1
+      MONGO_PORT: 27017
+      MONGO_DB: vehicle_parking
+      MONGO_AUTH_DB: vehicle_parking
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: server/package-lock.json
+
+      - name: Install server dependencies
+        working-directory: server
+        run: npm ci
+
+      # Create the app user so server can authenticate to MongoDB.
+      - name: Bootstrap MongoDB user
+        run: |
+          mongosh "mongodb://root:rootpassword@127.0.0.1:27017/admin" --eval "
+            db.getSiblingDB('vehicle_parking').createUser({
+              user: 'vps_app',
+              pwd:  'VPS',
+              roles: [{ role: 'readWrite', db: 'vehicle_parking' }]
+            });
+          "
+
+      - name: Run server tests
+        working-directory: server
+        run: npm test
+
+  # ────────────────────────────────────────────────────────────
+  # Client tests (React + Jest + Testing Library)
+  # Pure JS/DOM — no network or MongoDB needed.
+  # ────────────────────────────────────────────────────────────
+  client-tests:
+    name: Client — unit tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: client/package-lock.json
+
+      - name: Install client dependencies
+        working-directory: client
+        run: npm ci
+
+      - name: Run client tests
+        working-directory: client
+        run: npm test
