@@ -56,16 +56,17 @@ jobs:
         working-directory: server
         run: npm ci
 
-      # Create the app user so server can authenticate to MongoDB.
+      # mongosh is not installed on the runner host — exec into the service
+      # container instead, which ships mongosh inside the mongo:8 image.
       - name: Bootstrap MongoDB user
         run: |
-          mongosh "mongodb://root:rootpassword@127.0.0.1:27017/admin" --eval "
-            db.getSiblingDB('vehicle_parking').createUser({
+          docker exec $(docker ps -qf "ancestor=mongo:8") \
+            mongosh "mongodb://root:rootpassword@127.0.0.1:27017/admin" \
+            --eval "db.getSiblingDB('vehicle_parking').createUser({
               user: 'vps_app',
               pwd:  'VPS',
               roles: [{ role: 'readWrite', db: 'vehicle_parking' }]
-            });
-          "
+            });"
 
       - name: Run server tests
         working-directory: server
