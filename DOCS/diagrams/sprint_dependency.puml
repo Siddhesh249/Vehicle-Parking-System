@@ -1,0 +1,89 @@
+@startuml sprint_dependency
+skinparam backgroundColor white
+skinparam defaultFontName Helvetica
+skinparam rectangle {
+  BackgroundColor #FDEDED
+  BorderColor #B30000
+  FontColor #222222
+}
+skinparam package {
+  BackgroundColor white
+  BorderColor #B30000
+  FontColor #7A0000
+  FontStyle bold
+}
+skinparam arrowColor #7A0000
+skinparam ArrowFontColor #444444
+left to right direction
+
+package "Sprint 1 — Foundation (Oct 2–8)" {
+  rectangle "Repo + CI\nscaffold\n(Siddhesh)" as S1A
+  rectangle "Mongoose\nschemas\n(Sumukh)" as S1B
+  rectangle "Fare calc\n(pure fn)\n(Sumukh)" as S1C
+  rectangle "JWT utils +\nlogin logic\n(Sinchana)" as S1D
+  rectangle "React shell +\nJest/RTL harness\n(Sparsha)" as S1E
+}
+
+package "Sprint 2 — Core Services (Oct 9–15)" {
+  rectangle "Allocation\nService\n(Sumukh)" as S2A
+  rectangle "Fare/Exit\nService\n(Siddhesh)" as S2B
+  rectangle "Audit\nService\n(Sinchana)" as S2C
+  rectangle "Auth\nmiddleware\n(Sinchana)" as S2D
+  rectangle "Console UI\n(mocked data)\n(Sparsha)" as S2E
+}
+
+package "Sprint 3 — API, Real-Time & Admin (Oct 16–22)" {
+  rectangle "Entry/Exit\nControllers\n(Sumukh)" as S3A
+  rectangle "Admin/Overstay\nControllers\n(Sinchana)" as S3B
+  rectangle "Socket.io\nserver wiring\n(Siddhesh)" as S3C
+  rectangle "Socket.io client +\nreal API wiring\n(Sparsha)" as S3D
+  rectangle "Integration\ntests (Supertest)\n(Sumukh/Sinchana)" as S3E
+}
+
+package "Sprint 4 — Hardening (Oct 23–29)" {
+  rectangle "k6 load/\nconcurrency test\n(Sinchana)" as S4A
+  rectangle "Simulation\nConsole\n(Sumukh/Sparsha)" as S4B
+  rectangle "Regression +\npolish\n(All)" as S4C
+  rectangle "Test Execution\nSummary\n(Siddhesh)" as S4D
+}
+
+S1A --> S1B
+S1A --> S1C
+S1A --> S1D
+S1A --> S1E
+S1B --> S2A
+S1B --> S2B
+S1B --> S2C
+S1C --> S2B
+S1D --> S2D
+S1E --> S2E
+
+S2A --> S3A
+S2B --> S3A
+S2D --> S3A
+S2C --> S3B
+S2A --> S3B
+S2D --> S3B
+S3A --> S3C
+S3B --> S3C
+S3C --> S3D
+S3A --> S3D
+S3B --> S3D
+S3A --> S3E
+S3B --> S3E
+
+S3A --> S4A
+S3A --> S4B
+S3D --> S4B
+S3E --> S4C
+S4A --> S4C
+S4B --> S4C
+S4C --> S4D
+S4A --> S4D
+
+note bottom of S1A
+  Only hard cross-sprint blocker shown.
+  Within a sprint, tracks run in
+  parallel unless an arrow connects them.
+end note
+@enduml
