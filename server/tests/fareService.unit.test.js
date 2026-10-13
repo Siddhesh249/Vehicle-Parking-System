@@ -315,3 +315,58 @@ describe("calculateFare — edge cases", () => {
     expect(typeof calculateFare(entry, exit, "2W")).toBe("number");
   });
 });
+
+describe("calculateFare — additional validation", () => {
+  test("rejects invalid date inputs", () => {
+    expect(() =>
+      calculateFare(new Date("invalid"), new Date("2026-10-02T12:00:00Z"), "4W")
+    ).toThrow("Entry and exit timestamps must be valid dates");
+  });
+
+  test("supports custom tiers supplied out of order", () => {
+    const { entry, exit } = makeTimes(240);
+    const config = {
+      "4W": {
+        firstHourFree: true,
+        tiers: [
+          { afterHours: 3, ratePerHour: 30 },
+          { afterHours: 1, ratePerHour: 20 },
+        ],
+        lostTicketPenalty: 100,
+        overstayPenalty: 200,
+      },
+    };
+    expect(calculateFare(entry, exit, "4W", {}, config)).toBe(70);
+  });
+});
+
+describe("calculateFare — custom configuration validation", () => {
+  test("rejects a negative hourly rate", () => {
+    const { entry, exit } = makeTimes(120);
+    const config = {
+      "4W": {
+        firstHourFree: true,
+        tiers: [{ afterHours: 1, ratePerHour: -20 }],
+      },
+    };
+    expect(() => calculateFare(entry, exit, "4W", {}, config)).toThrow(
+      "Fare tier thresholds and rates must be non-negative numbers"
+    );
+  });
+
+  test("rejects duplicate tier thresholds", () => {
+    const { entry, exit } = makeTimes(120);
+    const config = {
+      "4W": {
+        firstHourFree: true,
+        tiers: [
+          { afterHours: 1, ratePerHour: 20 },
+          { afterHours: 1, ratePerHour: 30 },
+        ],
+      },
+    };
+    expect(() => calculateFare(entry, exit, "4W", {}, config)).toThrow(
+      "Fare tier thresholds must be unique"
+    );
+  });
+});

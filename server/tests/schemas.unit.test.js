@@ -612,3 +612,4 @@ describe("FareTierConfig schema", () => {
     ).rejects.toThrow();
   });
 });
+
