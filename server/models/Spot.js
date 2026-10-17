@@ -27,10 +27,9 @@ const spotSchema = new mongoose.Schema(
       default: null,
     },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
-spotSchema.index({ spotNumber: 1 }, { unique: true });
 spotSchema.index({ zone: 1, status: 1 });
 
 module.exports = mongoose.models.Spot || mongoose.model("Spot", spotSchema);

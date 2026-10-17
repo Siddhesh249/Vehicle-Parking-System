@@ -21,12 +21,12 @@
 const request = require("supertest");
 const mongoose = require("mongoose");
 const { app } = require("../app");
+const { connectTestDatabase, disconnectTestDatabase } = require("./testDatabase");
 
-let MongoMemoryServer;
-try {
-  MongoMemoryServer = require("mongodb-memory-server").MongoMemoryServer;
-} catch {
-  MongoMemoryServer = null;
+function getErrorMessage(body) {
+  return typeof body.error === "string"
+    ? body.error
+    : body.error?.message || body.message;
 }
 
 // ── Models & Utils ───────────────────────────────────────────────────────────
@@ -34,39 +34,8 @@ let User;
 let hashPassword;
 let verifyToken;
 
-let mongod;
-
 beforeAll(async () => {
-  if (MongoMemoryServer) {
-    try {
-      mongod = await MongoMemoryServer.create();
-      await mongoose.connect(mongod.getUri());
-    } catch {
-      mongod = null;
-    }
-  }
-
-  if (mongoose.connection.readyState !== 1) {
-    const user = encodeURIComponent(process.env.MONGO_USER || "vps_app");
-    const password = encodeURIComponent(process.env.MONGO_PASSWORD || "VPS");
-    const host = process.env.MONGO_HOST || "127.0.0.1";
-    const port = process.env.MONGO_PORT || "27017";
-    const db = (process.env.MONGO_DB || "vehicle_parking") + "_test";
-    const authDb = encodeURIComponent(
-      process.env.MONGO_AUTH_DB || "vehicle_parking"
-    );
-    const uri =
-      process.env.MONGO_URI ||
-      `mongodb://${user}:${password}@${host}:${port}/${db}?authSource=${authDb}`;
-    try {
-      await mongoose.connect(uri, {
-        serverSelectionTimeoutMS: 1000,
-        connectTimeoutMS: 1000,
-      });
-    } catch {
-      // Offline fallback
-    }
-  }
+  await connectTestDatabase();
 
   try {
     User = require("../models/User");
@@ -90,12 +59,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  if (mongoose.connection.readyState !== 0) {
-    await mongoose.disconnect();
-  }
-  if (mongod) {
-    await mongod.stop();
-  }
+  await disconnectTestDatabase();
 });
 
 afterEach(async () => {
@@ -199,9 +163,7 @@ describe("POST /api/auth/login — invalid credentials", () => {
       .expect(401);
 
     expect(response.body.token).toBeUndefined();
-    expect(response.body.error || response.body.message).toMatch(
-      /invalid credentials/i
-    );
+    expect(getErrorMessage(response.body)).toMatch(/invalid credentials/i);
   });
 
   test("returns 401 when username does not exist in the database", async () => {
@@ -214,9 +176,7 @@ describe("POST /api/auth/login — invalid credentials", () => {
       .expect(401);
 
     expect(response.body.token).toBeUndefined();
-    expect(response.body.error || response.body.message).toMatch(
-      /invalid credentials/i
-    );
+    expect(getErrorMessage(response.body)).toMatch(/invalid credentials/i);
   });
 });
 
@@ -239,10 +199,7 @@ describe("POST /api/auth/login — request body validation", () => {
   });
 
   test("returns 400 when body is empty", async () => {
-    await request(app)
-      .post("/api/auth/login")
-      .send({})
-      .expect(400);
+    await request(app).post("/api/auth/login").send({}).expect(400);
   });
 });
 
@@ -280,9 +237,7 @@ describe("POST /api/auth/login — account lockout threshold (423 Locked)", () =
       })
       .expect(423);
 
-    expect(fifthResponse.body.error || fifthResponse.body.message).toMatch(
-      /account locked/i
-    );
+    expect(getErrorMessage(fifthResponse.body)).toMatch(/account locked/i);
 
     // Verify DB state
     const userInDb = await User.findOne({ username: "lockout_http_user" });
@@ -312,9 +267,7 @@ describe("POST /api/auth/login — account lockout threshold (423 Locked)", () =
       })
       .expect(423);
 
-    expect(response.body.error || response.body.message).toMatch(
-      /account locked/i
-    );
+    expect(getErrorMessage(response.body)).toMatch(/account locked/i);
   });
 });
 
