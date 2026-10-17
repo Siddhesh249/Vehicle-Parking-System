@@ -50,3 +50,18 @@ This constraint is why concurrency-safe, atomic database writes matter so much h
 - The parking lot is shown as a live grid of spots, green = free, red = reserved, split visually into 2W and 4W zones.
 - All open sessions (both entry consoles, both exit consoles, admin dashboard) must show an **identical, live-updating** view — this is the Socket.io broadcast requirement, and it's also the main "wow" moment for a demo (open several tabs, watch them all update together).
 - Admin dashboard additionally has revenue-over-time and occupancy-over-time charts, and a searchable full transaction/audit log — none of which operators can see.
+
+## 9. Local development and tests
+
+The repository has separate `client` and `server` npm packages, plus root scripts for running the project checks together. Install their dependencies once, then run the complete suite from the repository root:
+
+```bash
+npm ci
+npm ci --prefix server
+npm ci --prefix client
+npm test
+```
+
+`npm test` runs the server Jest suite followed by the client React Testing Library suite. The server suite uses a separate database named `<MONGO_DB>_test` (default `vehicle_parking_test`) and clears its collections between tests. Set `MONGO_URI` in `server/.env` when the local MongoDB uses a URI different from the defaults. For a local server without authentication, use `mongodb://127.0.0.1:27017/vehicle_parking`; for authenticated MongoDB, use a URI with credentials and an `authSource`. Never commit `.env` files.
+
+The server JWT secret is read from `JWT_SECRET`. The development fallback is for local tests only; production startup must provide a secret. The client initially exposes route stubs for Entry-1, Entry-2, Exit-1, Exit-2, and Admin so each console can be built independently against the API contract.
