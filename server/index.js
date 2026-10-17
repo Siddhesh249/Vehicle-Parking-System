@@ -9,17 +9,13 @@ async function start() {
   const host = process.env.MONGO_HOST || "127.0.0.1";
   const port = process.env.MONGO_PORT || "27017";
   const database = process.env.MONGO_DB || "vehicle_parking";
-  const authDatabase = encodeURIComponent(
-    process.env.MONGO_AUTH_DB || "vehicle_parking"
-  );
-
-  if (!user || !password) {
-    throw new Error("MongoDB credentials are missing from server/.env");
-  }
+  const authDatabase = encodeURIComponent(process.env.MONGO_AUTH_DB || "vehicle_parking");
 
   const mongoUri =
-    `mongodb://${user}:${password}@${host}:${port}/${database}` +
-    `?authSource=${authDatabase}`;
+    process.env.MONGO_URI ||
+    (user && password
+      ? `mongodb://${user}:${password}@${host}:${port}/${database}?authSource=${authDatabase}`
+      : `mongodb://${host}:${port}/${database}`);
 
   await mongoose.connect(mongoUri);
   console.log("Connected to MongoDB");

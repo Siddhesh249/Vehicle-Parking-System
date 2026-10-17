@@ -18,12 +18,7 @@
 "use strict";
 
 const mongoose = require("mongoose");
-let MongoMemoryServer;
-try {
-  MongoMemoryServer = require("mongodb-memory-server").MongoMemoryServer;
-} catch {
-  MongoMemoryServer = null;
-}
+const { connectTestDatabase, disconnectTestDatabase } = require("./testDatabase");
 
 // ── Service & Model imports ──────────────────────────────────────────────────
 // These modules do not exist yet — tests are written against the contracts
@@ -34,39 +29,8 @@ let User, AuditLog;
 let hashPassword;
 let verifyToken;
 
-let mongod;
-
 beforeAll(async () => {
-  if (MongoMemoryServer) {
-    try {
-      mongod = await MongoMemoryServer.create();
-      await mongoose.connect(mongod.getUri());
-    } catch {
-      mongod = null;
-    }
-  }
-
-  if (mongoose.connection.readyState !== 1) {
-    const user = encodeURIComponent(process.env.MONGO_USER || "vps_app");
-    const password = encodeURIComponent(process.env.MONGO_PASSWORD || "VPS");
-    const host = process.env.MONGO_HOST || "127.0.0.1";
-    const port = process.env.MONGO_PORT || "27017";
-    const db = (process.env.MONGO_DB || "vehicle_parking") + "_test";
-    const authDb = encodeURIComponent(
-      process.env.MONGO_AUTH_DB || "vehicle_parking"
-    );
-    const uri =
-      process.env.MONGO_URI ||
-      `mongodb://${user}:${password}@${host}:${port}/${db}?authSource=${authDb}`;
-    try {
-      await mongoose.connect(uri, {
-        serverSelectionTimeoutMS: 1000,
-        connectTimeoutMS: 1000,
-      });
-    } catch {
-      // Offline fallback: allows test registration
-    }
-  }
+  await connectTestDatabase();
 
   try {
     const authService = require("../services/loginService");
@@ -103,12 +67,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  if (mongoose.connection.readyState !== 0) {
-    await mongoose.disconnect();
-  }
-  if (mongod) {
-    await mongod.stop();
-  }
+  await disconnectTestDatabase();
 });
 
 afterEach(async () => {
@@ -225,13 +184,13 @@ describe("login — credential validation & password security", () => {
     });
 
     await expect(login("test_op", "WrongPassword")).rejects.toThrow(
-      /invalid credentials/i
+      /invalid credentials/i,
     );
   });
 
   test("rejects login when username does not exist", async () => {
     await expect(login("nonexistent_user", "AnyPassword")).rejects.toThrow(
-      /invalid credentials/i
+      /invalid credentials/i,
     );
   });
 
@@ -303,9 +262,7 @@ describe("login — failed attempt counter & 5-attempt lockout threshold", () =>
       isLocked: false,
     });
 
-    await expect(login("lockout_target", "BadPass5")).rejects.toThrow(
-      /account locked/i
-    );
+    await expect(login("lockout_target", "BadPass5")).rejects.toThrow(/account locked/i);
 
     const user = await User.findOne({ username: "lockout_target" });
     expect(user.failedLoginAttempts).toBe(5);
@@ -328,7 +285,7 @@ describe("login — failed attempt counter & 5-attempt lockout threshold", () =>
     });
 
     await expect(login("already_locked", "CorrectPassword123!")).rejects.toThrow(
-      /account locked/i
+      /account locked/i,
     );
   });
 
