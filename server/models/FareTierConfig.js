@@ -15,7 +15,7 @@ const tierSchema = new mongoose.Schema(
       min: 0,
     },
   },
-  { _id: false }
+  { _id: false },
 );
 
 const fareTierConfigSchema = new mongoose.Schema(
@@ -40,7 +40,7 @@ const fareTierConfigSchema = new mongoose.Schema(
             (tier, index) =>
               Number.isFinite(tier.afterHours) &&
               Number.isFinite(tier.ratePerHour) &&
-              (index === 0 || tier.afterHours > tiers[index - 1].afterHours)
+              (index === 0 || tier.afterHours > tiers[index - 1].afterHours),
           );
         },
         message: "Fare tiers must be non-empty and ordered by increasing hours",
@@ -61,10 +61,8 @@ const fareTierConfigSchema = new mongoose.Schema(
       min: 0,
     },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
-
-fareTierConfigSchema.index({ vehicleType: 1 }, { unique: true });
 
 module.exports =
   mongoose.models.FareTierConfig ||

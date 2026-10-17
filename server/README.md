@@ -4,6 +4,7 @@ This folder contains the first domain layer for the Vehicle Parking System.
 
 ## Models
 
+- `models/Vehicle.js` stores normalized, unique plate numbers and their `2W` or `4W` type.
 - `models/User.js` stores login identity, role, operator gate assignment, and account-lockout state. Operators must have one of the four configured gates; admins do not need a gate assignment. Password hashes are excluded from ordinary query results.
 - `models/Spot.js` represents a parking space in the `2W` or `4W` zone. Spot numbers are unique and a new spot defaults to `free`.
 - `models/Transaction.js` records a vehicle's entry ticket, plate, spot, gate/operator IDs, and optional exit/fare details. Ticket IDs are unique; transactions default to `active`.
@@ -37,11 +38,11 @@ console.log(fare); // 30
 
 ## Tests
 
-From the `server` directory, install dependencies and run:
+From the repository root, install dependencies and run the server and client suites with `npm test`. To run just the server suite:
 
-```powershell
-npm ci
+```bash
+npm ci --prefix server
 npm test
 ```
 
-The schema tests require a reachable MongoDB test database. The repository's GitHub Actions workflow provisions MongoDB for CI. Do not put database credentials in committed files; use environment variables or a local `.env` file.
+The server Jest config loads `server/.env` and connects to `<MONGO_DB>_test`, keeping test writes away from the application database. The root test script starts Jest with Node VM module support required by MongoDB driver 7. The GitHub Actions workflow provisions a MongoDB service for CI. Set `MONGO_URI` when using an unauthenticated local MongoDB or a non-default URI; keep credentials in a local `.env` file and never commit it.

@@ -76,10 +76,9 @@ const transactionSchema = new mongoose.Schema(
       default: false,
     },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
-transactionSchema.index({ ticketId: 1 }, { unique: true });
 transactionSchema.index({ plateNumber: 1, status: 1 });
 transactionSchema.index({ status: 1, entryTimestamp: 1 });
 

@@ -1,9 +1,8 @@
 /**
  * Sprint 1 — T2: Mongoose Schema Validation Unit Tests
  *
- * Tests schema-level constraints (required fields, enum values, default values,
- * min/max bounds) without a live database. A MongoMemoryServer instance is used
- * so the tests are fully self-contained and leave no persistent state.
+ * Tests schema-level constraints (required fields, enum values, defaults and
+ * bounds) against the isolated MongoDB test database configured for Jest.
  *
  * SRS refs  : SAD 3.6 (data model), VPS-F-001..005, VPS-F-010..016, VPS-F-033..034
  * Sprint ref: Sprint 1, Track T2 (Sumukh)
@@ -12,55 +11,20 @@
 "use strict";
 
 const mongoose = require("mongoose");
-let MongoMemoryServer;
-try {
-  MongoMemoryServer = require("mongodb-memory-server").MongoMemoryServer;
-} catch {
-  MongoMemoryServer = null;
-}
+const { connectTestDatabase, disconnectTestDatabase } = require("./testDatabase");
 
 // ── Models (imported after connection is ready in beforeAll) ──────────────────
 // These modules do not exist yet — the tests are written against the contracts
 // specified in the SAD (Section 3.6) and SRS. When the implementation lands,
 // the imports below must resolve correctly for the tests to pass.
-let User, Spot, Transaction, AuditLog, FareTierConfig;
-
-let mongod;
+let Vehicle, User, Spot, Transaction, AuditLog, FareTierConfig;
 
 beforeAll(async () => {
-  if (MongoMemoryServer) {
-    try {
-      mongod = await MongoMemoryServer.create();
-      await mongoose.connect(mongod.getUri());
-    } catch {
-      mongod = null;
-    }
-  }
-
-  if (mongoose.connection.readyState !== 1) {
-    const user = encodeURIComponent(process.env.MONGO_USER || "vps_app");
-    const password = encodeURIComponent(process.env.MONGO_PASSWORD || "VPS");
-    const host = process.env.MONGO_HOST || "127.0.0.1";
-    const port = process.env.MONGO_PORT || "27017";
-    const db = (process.env.MONGO_DB || "vehicle_parking") + "_test";
-    const authDb = encodeURIComponent(
-      process.env.MONGO_AUTH_DB || "vehicle_parking"
-    );
-    const uri =
-      process.env.MONGO_URI ||
-      `mongodb://${user}:${password}@${host}:${port}/${db}?authSource=${authDb}`;
-    try {
-      await mongoose.connect(uri, {
-        serverSelectionTimeoutMS: 1000,
-        connectTimeoutMS: 1000,
-      });
-    } catch {
-      // Offline fallback: allows schema structure tests to proceed
-    }
-  }
+  await connectTestDatabase();
 
   // Lazy-require after the connection is open so Mongoose can register models.
   try {
+    Vehicle = require("../models/Vehicle");
     User = require("../models/User");
     Spot = require("../models/Spot");
     Transaction = require("../models/Transaction");
@@ -71,13 +35,28 @@ beforeAll(async () => {
   }
 });
 
+describe("Vehicle schema", () => {
+  test("normalizes plate numbers and saves a supported vehicle type", async () => {
+    const doc = await Vehicle.create({ plateNumber: " ka01ab1234 ", vehicleType: "4W" });
+    expect(doc.plateNumber).toBe("KA01AB1234");
+    expect(doc.vehicleType).toBe("4W");
+  });
+
+  test("rejects a missing plate number", async () => {
+    await expect(Vehicle.create({ vehicleType: "2W" })).rejects.toThrow(
+      mongoose.Error.ValidationError,
+    );
+  });
+
+  test("rejects an unsupported vehicle type", async () => {
+    await expect(
+      Vehicle.create({ plateNumber: "KA01AB1234", vehicleType: "3W" }),
+    ).rejects.toThrow(mongoose.Error.ValidationError);
+  });
+});
+
 afterAll(async () => {
-  if (mongoose.connection.readyState !== 0) {
-    await mongoose.disconnect();
-  }
-  if (mongod) {
-    await mongod.stop();
-  }
+  await disconnectTestDatabase();
 });
 
 afterEach(async () => {
@@ -117,13 +96,13 @@ describe("User schema", () => {
 
   test("rejects a document with missing required username", async () => {
     await expect(
-      User.create({ passwordHash: "$2b$10$fake", role: "operator", gateId: "Entry-1" })
+      User.create({ passwordHash: "$2b$10$fake", role: "operator", gateId: "Entry-1" }),
     ).rejects.toThrow(mongoose.Error.ValidationError);
   });
 
   test("rejects a document with missing required passwordHash", async () => {
     await expect(
-      User.create({ username: "op2", role: "operator", gateId: "Entry-1" })
+      User.create({ username: "op2", role: "operator", gateId: "Entry-1" }),
     ).rejects.toThrow(mongoose.Error.ValidationError);
   });
 
@@ -134,7 +113,7 @@ describe("User schema", () => {
         passwordHash: "$2b$10$fake",
         role: "superuser", // not in the enum
         gateId: "Entry-1",
-      })
+      }),
     ).rejects.toThrow(mongoose.Error.ValidationError);
   });
 
@@ -146,7 +125,7 @@ describe("User schema", () => {
         passwordHash: "$2b$10$fake",
         role: "operator",
         gateId: "Gate-99",
-      })
+      }),
     ).rejects.toThrow(mongoose.Error.ValidationError);
   });
 
@@ -191,7 +170,7 @@ describe("User schema", () => {
         username: "operator_no_gate",
         passwordHash: "$2b$10$fake",
         role: "operator",
-      })
+      }),
     ).rejects.toThrow(mongoose.Error.ValidationError);
   });
 
@@ -208,7 +187,7 @@ describe("User schema", () => {
         passwordHash: "$2b$10$other",
         role: "operator",
         gateId: "Entry-2",
-      })
+      }),
     ).rejects.toThrow();
   });
 });
@@ -242,31 +221,31 @@ describe("Spot schema", () => {
   test("enforces unique spotNumber (VPS-F-011)", async () => {
     await Spot.create({ spotNumber: "4W-099", zone: "4W", status: "free" });
     await expect(
-      Spot.create({ spotNumber: "4W-099", zone: "4W", status: "free" })
+      Spot.create({ spotNumber: "4W-099", zone: "4W", status: "free" }),
     ).rejects.toThrow();
   });
 
   test("rejects an invalid zone value", async () => {
-    await expect(
-      Spot.create({ spotNumber: "X-001", zone: "3W" })
-    ).rejects.toThrow(mongoose.Error.ValidationError);
+    await expect(Spot.create({ spotNumber: "X-001", zone: "3W" })).rejects.toThrow(
+      mongoose.Error.ValidationError,
+    );
   });
 
   test("rejects an invalid status value", async () => {
     await expect(
-      Spot.create({ spotNumber: "4W-002", zone: "4W", status: "occupied" })
+      Spot.create({ spotNumber: "4W-002", zone: "4W", status: "occupied" }),
     ).rejects.toThrow(mongoose.Error.ValidationError);
   });
 
   test("rejects a missing spotNumber", async () => {
     await expect(Spot.create({ zone: "4W" })).rejects.toThrow(
-      mongoose.Error.ValidationError
+      mongoose.Error.ValidationError,
     );
   });
 
   test("rejects a missing zone", async () => {
     await expect(Spot.create({ spotNumber: "4W-003" })).rejects.toThrow(
-      mongoose.Error.ValidationError
+      mongoose.Error.ValidationError,
     );
   });
 });
@@ -327,7 +306,7 @@ describe("Transaction schema", () => {
         entryOperatorId: new mongoose.Types.ObjectId(),
         entryTimestamp: new Date(),
         status: "active",
-      })
+      }),
     ).rejects.toThrow(mongoose.Error.ValidationError);
   });
 
@@ -342,7 +321,7 @@ describe("Transaction schema", () => {
         entryOperatorId: new mongoose.Types.ObjectId(),
         entryTimestamp: new Date(),
         status: "active",
-      })
+      }),
     ).rejects.toThrow(mongoose.Error.ValidationError);
   });
 
@@ -357,7 +336,7 @@ describe("Transaction schema", () => {
         entryOperatorId: new mongoose.Types.ObjectId(),
         entryTimestamp: new Date(),
         status: "pending",
-      })
+      }),
     ).rejects.toThrow(mongoose.Error.ValidationError);
   });
 
@@ -371,7 +350,7 @@ describe("Transaction schema", () => {
         entryOperatorId: new mongoose.Types.ObjectId(),
         entryTimestamp: new Date(),
         status: "active",
-      })
+      }),
     ).rejects.toThrow(mongoose.Error.ValidationError);
   });
 
@@ -385,7 +364,7 @@ describe("Transaction schema", () => {
         entryOperatorId: new mongoose.Types.ObjectId(),
         entryTimestamp: new Date(),
         status: "active",
-      })
+      }),
     ).rejects.toThrow(mongoose.Error.ValidationError);
   });
 
@@ -400,7 +379,7 @@ describe("Transaction schema", () => {
         entryOperatorId: new mongoose.Types.ObjectId(),
         entryTimestamp: new Date(),
         status: "active",
-      })
+      }),
     ).rejects.toThrow(mongoose.Error.ValidationError);
   });
 
@@ -418,7 +397,7 @@ describe("Transaction schema", () => {
         exitOperatorId: new mongoose.Types.ObjectId(),
         exitTimestamp: new Date(),
         status: "completed",
-      })
+      }),
     ).rejects.toThrow(mongoose.Error.ValidationError);
   });
 
@@ -447,7 +426,9 @@ describe("Transaction schema", () => {
       status: "active",
     };
     await Transaction.create(shared);
-    await expect(Transaction.create({ ...shared, plateNumber: "KA07MN5678" })).rejects.toThrow();
+    await expect(
+      Transaction.create({ ...shared, plateNumber: "KA07MN5678" }),
+    ).rejects.toThrow();
   });
 });
 
@@ -481,7 +462,7 @@ describe("AuditLog schema", () => {
       AuditLog.create({
         actorId: new mongoose.Types.ObjectId(),
         actorRole: "operator",
-      })
+      }),
     ).rejects.toThrow(mongoose.Error.ValidationError);
   });
 
@@ -490,7 +471,7 @@ describe("AuditLog schema", () => {
       AuditLog.create({
         action: "VEHICLE_EXIT",
         actorId: new mongoose.Types.ObjectId(),
-      })
+      }),
     ).rejects.toThrow(mongoose.Error.ValidationError);
   });
 
@@ -499,7 +480,7 @@ describe("AuditLog schema", () => {
       AuditLog.create({
         action: "VEHICLE_ENTRY",
         actorRole: "operator",
-      })
+      }),
     ).rejects.toThrow(mongoose.Error.ValidationError);
   });
 
@@ -509,7 +490,7 @@ describe("AuditLog schema", () => {
         action: "LOGIN_FAIL",
         actorId: new mongoose.Types.ObjectId(),
         actorRole: "developer",
-      })
+      }),
     ).rejects.toThrow(mongoose.Error.ValidationError);
   });
 
@@ -519,7 +500,7 @@ describe("AuditLog schema", () => {
         action: "UNKNOWN_ACTION_NAME",
         actorId: new mongoose.Types.ObjectId(),
         actorRole: "admin",
-      })
+      }),
     ).rejects.toThrow(mongoose.Error.ValidationError);
   });
 });
@@ -566,7 +547,7 @@ describe("FareTierConfig schema", () => {
       FareTierConfig.create({
         vehicleType: "3W",
         tiers: [{ afterHours: 1, ratePerHour: 20 }],
-      })
+      }),
     ).rejects.toThrow(mongoose.Error.ValidationError);
   });
 
@@ -575,7 +556,7 @@ describe("FareTierConfig schema", () => {
       FareTierConfig.create({
         vehicleType: "4W",
         tiers: [{ afterHours: 1, ratePerHour: -5 }],
-      })
+      }),
     ).rejects.toThrow(mongoose.Error.ValidationError);
   });
 
@@ -585,7 +566,7 @@ describe("FareTierConfig schema", () => {
         vehicleType: "2W",
         tiers: [{ afterHours: 1, ratePerHour: 10 }],
         lostTicketPenalty: -10,
-      })
+      }),
     ).rejects.toThrow(mongoose.Error.ValidationError);
   });
 
@@ -595,7 +576,7 @@ describe("FareTierConfig schema", () => {
         vehicleType: "4W",
         tiers: [{ afterHours: 1, ratePerHour: 20 }],
         overstayPenalty: -50,
-      })
+      }),
     ).rejects.toThrow(mongoose.Error.ValidationError);
   });
 
@@ -608,8 +589,7 @@ describe("FareTierConfig schema", () => {
       FareTierConfig.create({
         vehicleType: "4W",
         tiers: [{ afterHours: 1, ratePerHour: 25 }],
-      })
+      }),
     ).rejects.toThrow();
   });
 });
-
