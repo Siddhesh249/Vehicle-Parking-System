@@ -91,7 +91,7 @@ function EntryConsole({ gateId, api }) {
                   const finderDark = finderOrigin && (finderX === 0 || finderX === 2 || finderY === 0 || finderY === 2 || (finderX === 1 && finderY === 1));
                   const dataDark = (index * 7 + result.ticketId.length * 3) % 5 < 2;
                   return <span className={finderDark || (!finderOrigin && dataDark) ? "qr-cell qr-dark" : "qr-cell"} key={index} />;
-                ))}
+                })}
               </div>
               <p className="supporting-copy">Keep this ticket ID for a quick exit lookup.</p>
             </>
@@ -109,3 +109,4 @@ function EntryConsole({ gateId, api }) {
 }
 
 export default EntryConsole;
+
