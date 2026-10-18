@@ -5,6 +5,7 @@ const http = require("http");
 const cors = require("cors");
 const mongoose = require("mongoose");
 const { Server } = require("socket.io");
+const { login } = require("./services/loginService");
 
 const app = express();
 const server = http.createServer(app);
@@ -24,9 +25,31 @@ const io = new Server(server, {
 app.get("/api/health", (_req, res) => {
   res.json({
     status: "ok",
-    database:
-      mongoose.connection.readyState === 1 ? "connected" : "disconnected",
+    database: mongoose.connection.readyState === 1 ? "connected" : "disconnected",
   });
+});
+
+app.post("/api/auth/login", async (req, res) => {
+  const { username, password } = req.body || {};
+  if (
+    typeof username !== "string" ||
+    !username.trim() ||
+    typeof password !== "string" ||
+    !password
+  ) {
+    return res.status(400).json({
+      error: { code: "INVALID_REQUEST", message: "Username and password are required" },
+    });
+  }
+
+  try {
+    const result = await login(username.trim(), password);
+    return res.status(200).json(result);
+  } catch (error) {
+    const status = error.statusCode || 401;
+    const code = status === 423 ? "ACCOUNT_LOCKED" : "INVALID_CREDENTIALS";
+    return res.status(status).json({ error: { code, message: error.message } });
+  }
 });
 
 io.on("connection", (socket) => {
