@@ -1,4 +1,8 @@
 import "./App.css";
+import EntryConsole from "./components/EntryConsole.jsx";
+import ExitConsole from "./components/ExitConsole.jsx";
+import AdminConsole from "./components/AdminConsole.jsx";
+import { mockApi } from "./components/mockApi.js";
 
 const consoles = [
   { path: "/entry-1", label: "Entry Gate 1", role: "Entry operator" },
@@ -37,20 +41,27 @@ function App() {
       </section>
 
       {currentConsole ? (
-        <section className="console-card" aria-labelledby="console-title">
-          <div className="card-icon" aria-hidden="true">
-            {currentPath === "/admin" ? "A" : "G"}
+        <>
+          <div className="route-toolbar">
+            <span className="route-role">{currentConsole.role} console</span>
+            <a className="text-link" href="/">
+              All consoles
+            </a>
           </div>
-          <div>
-            <h2 id="console-title">{currentConsole.role} console</h2>
-            <p>
-              This route is ready for the {currentConsole.label.toLowerCase()} workflow.
-            </p>
-          </div>
-          <a className="text-link" href="/">
-            All consoles
-          </a>
-        </section>
+          {currentPath.startsWith("/entry-") && (
+            <EntryConsole
+              gateId={currentPath === "/entry-2" ? "Entry-2" : "Entry-1"}
+              api={mockApi}
+            />
+          )}
+          {currentPath.startsWith("/exit-") && (
+            <ExitConsole
+              gateId={currentPath === "/exit-2" ? "Exit-2" : "Exit-1"}
+              api={mockApi}
+            />
+          )}
+          {currentPath === "/admin" && <AdminConsole api={mockApi} />}
+        </>
       ) : (
         <nav className="console-grid" aria-label="Parking system consoles">
           {consoles.map(({ path, label, role }) => (
