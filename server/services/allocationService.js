@@ -36,6 +36,8 @@ async function allocateSpot({ plateNumber, vehicleType, gateId, operatorId }) {
   }
 
   const normalizedPlate = plateNumber.trim().toUpperCase();
+  // Capture arrival time before database work so latency cannot reorder FCFS timestamps.
+  const entryTimestamp = new Date();
 
   const spot = await Spot.findOneAndUpdate(
     { zone: vehicleType, status: "free" },
@@ -60,8 +62,7 @@ async function allocateSpot({ plateNumber, vehicleType, gateId, operatorId }) {
       { upsert: true, new: true, runValidators: true, setDefaultsOnInsert: true },
     );
 
-    // Server-generated timestamp ensures clients cannot manipulate FCFS order.
-    const entryTimestamp = new Date();
+    // The timestamp is server-generated and cannot be supplied by the client.
     const ticketId = `TKT-${entryTimestamp.toISOString().replace(/[-:.TZ]/g, "")}-${randomUUID().slice(0, 8).toUpperCase()}`;
 
     const transaction = await Transaction.create({
