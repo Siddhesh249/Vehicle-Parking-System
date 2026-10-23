@@ -16,27 +16,6 @@ const input = (overrides = {}) => ({
   gateId: "Entry-1",
   operatorId: "operator-1",
   ...overrides,
-  test("uses a server-received timestamp instead of a client-supplied timestamp", async () => {
-    const receivedAt = new Date("2026-10-23T12:00:00.000Z");
-    jest.useFakeTimers().setSystemTime(receivedAt);
-    Spot.findOneAndUpdate.mockResolvedValue({ _id: "spot-3", zone: "4W" });
-    Vehicle.findOneAndUpdate.mockResolvedValue({ plateNumber: "KA01AB1234", vehicleType: "4W" });
-    Transaction.create.mockResolvedValue({ _id: "tx-3", ticketId: "ticket-3" });
-
-    try {
-      const result = await allocateSpot(input({
-        entryTimestamp: new Date("2000-01-01T00:00:00.000Z"),
-      }));
-
-      expect(Transaction.create).toHaveBeenCalledWith(
-        expect.objectContaining({ entryTimestamp: receivedAt }),
-      );
-      expect(result.entryTimestamp).toEqual(receivedAt);
-    } finally {
-      jest.useRealTimers();
-    }
-  });
-
 });
 
 describe("allocateSpot", () => {
@@ -99,5 +78,26 @@ describe("allocateSpot", () => {
     expect(first.spotId).toBe("spot-1");
     expect(second.spotId).toBe("spot-2");
     expect(Spot.findOneAndUpdate).toHaveBeenCalledTimes(2);
+  });
+
+  test("uses a server-received timestamp instead of a client-supplied timestamp", async () => {
+    const receivedAt = new Date("2026-10-23T12:00:00.000Z");
+    jest.useFakeTimers().setSystemTime(receivedAt);
+    Spot.findOneAndUpdate.mockResolvedValue({ _id: "spot-3", zone: "4W" });
+    Vehicle.findOneAndUpdate.mockResolvedValue({ plateNumber: "KA01AB1234", vehicleType: "4W" });
+    Transaction.create.mockResolvedValue({ _id: "tx-3", ticketId: "ticket-3" });
+
+    try {
+      const result = await allocateSpot(input({
+        entryTimestamp: new Date("2000-01-01T00:00:00.000Z"),
+      }));
+
+      expect(Transaction.create).toHaveBeenCalledWith(
+        expect.objectContaining({ entryTimestamp: receivedAt }),
+      );
+      expect(result.entryTimestamp).toEqual(receivedAt);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
