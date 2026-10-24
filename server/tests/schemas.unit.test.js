@@ -430,6 +430,24 @@ describe("Transaction schema", () => {
       Transaction.create({ ...shared, plateNumber: "KA07MN5678" }),
     ).rejects.toThrow();
   });
+
+  test("allows vehicle history but enforces only one active transaction per plate", async () => {
+    const shared = {
+      plateNumber: "KA08OP1234",
+      vehicleType: "4W",
+      spotId: new mongoose.Types.ObjectId(),
+      entryGateId: "Entry-1",
+      entryOperatorId: new mongoose.Types.ObjectId(),
+      entryTimestamp: new Date(),
+    };
+    await Transaction.create({ ...shared, ticketId: "TKT-ACTIVE-001", status: "active" });
+    await expect(
+      Transaction.create({ ...shared, ticketId: "TKT-ACTIVE-002", status: "active" }),
+    ).rejects.toThrow();
+    await expect(
+      Transaction.create({ ...shared, ticketId: "TKT-HISTORY-001", status: "completed" }),
+    ).resolves.toMatchObject({ status: "completed" });
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -502,6 +520,13 @@ describe("AuditLog schema", () => {
         actorRole: "admin",
       }),
     ).rejects.toThrow(mongoose.Error.ValidationError);
+  });
+
+  test("rejects application-level updates and deletes to preserve append-only history", async () => {
+    await expect(
+      AuditLog.updateOne({}, { $set: { action: "VEHICLE_EXIT" } }),
+    ).rejects.toThrow("append-only");
+    await expect(AuditLog.deleteMany({})).rejects.toThrow("append-only");
   });
 });
 

@@ -1,12 +1,24 @@
 import "./App.css";
+import { mockApi } from "./api/mockApi.js";
+import AdminConsole from "./components/AdminConsole.jsx";
+import EntryConsole from "./components/EntryConsole.jsx";
+import ExitConsole from "./components/ExitConsole.jsx";
+import LotMap from "./components/LotMap.jsx";
 
 const consoles = [
-  { path: "/entry-1", label: "Entry Gate 1", role: "Entry operator" },
-  { path: "/entry-2", label: "Entry Gate 2", role: "Entry operator" },
-  { path: "/exit-1", label: "Exit Gate 1", role: "Exit operator" },
-  { path: "/exit-2", label: "Exit Gate 2", role: "Exit operator" },
+  { path: "/entry-1", label: "Entry Gate 1", role: "Entry operator", gateId: "Entry-1" },
+  { path: "/entry-2", label: "Entry Gate 2", role: "Entry operator", gateId: "Entry-2" },
+  { path: "/exit-1", label: "Exit Gate 1", role: "Exit operator", gateId: "Exit-1" },
+  { path: "/exit-2", label: "Exit Gate 2", role: "Exit operator", gateId: "Exit-2" },
   { path: "/admin", label: "Admin Dashboard", role: "Admin" },
 ];
+
+// Renders the working console for a route. Uses the mock API until the real client lands in Sprint 3.
+function ConsoleView({ gateId, role }) {
+  if (role === "Admin") return <AdminConsole api={mockApi} />;
+  if (gateId.startsWith("Entry")) return <EntryConsole gateId={gateId} api={mockApi} />;
+  return <ExitConsole gateId={gateId} api={mockApi} />;
+}
 
 function App() {
   const currentPath = window.location.pathname.replace(/\/$/, "") || "/";
@@ -37,20 +49,22 @@ function App() {
       </section>
 
       {currentConsole ? (
-        <section className="console-card" aria-labelledby="console-title">
-          <div className="card-icon" aria-hidden="true">
-            {currentPath === "/admin" ? "A" : "G"}
-          </div>
-          <div>
-            <h2 id="console-title">{currentConsole.role} console</h2>
-            <p>
-              This route is ready for the {currentConsole.label.toLowerCase()} workflow.
-            </p>
-          </div>
-          <a className="text-link" href="/">
-            All consoles
-          </a>
-        </section>
+        <>
+          <section className="console-card" aria-labelledby="console-title">
+            <div className="card-icon" aria-hidden="true">
+              {currentPath === "/admin" ? "A" : "G"}
+            </div>
+            <div>
+              <h2 id="console-title">{currentConsole.role} console</h2>
+              <p>Running on mock data until the backend is connected.</p>
+            </div>
+            <a className="text-link" href="/">
+              All consoles
+            </a>
+          </section>
+          <ConsoleView gateId={currentConsole.gateId} role={currentConsole.role} />
+          <LotMap api={mockApi} />
+        </>
       ) : (
         <nav className="console-grid" aria-label="Parking system consoles">
           {consoles.map(({ path, label, role }) => (
