@@ -3,7 +3,11 @@ import { createMockApi } from "./mockApi.js";
 describe("mock API (SAD 4.3 shapes)", () => {
   test("entry allots a spot in the matching zone and marks it reserved", async () => {
     const api = createMockApi({ delayMs: 0 });
-    const ticket = await api.createEntry({ plateNumber: "KA09ZZ0001", vehicleType: "2W", gateId: "Entry-1" });
+    const ticket = await api.createEntry({
+      plateNumber: "KA09ZZ0001",
+      vehicleType: "2W",
+      gateId: "Entry-1",
+    });
 
     expect(ticket).toEqual({
       ticketId: expect.stringMatching(/^TKT-\d{8}-001$/),
@@ -20,10 +24,18 @@ describe("mock API (SAD 4.3 shapes)", () => {
     const lot = await api.getLotStatus();
     const free2W = lot.spots.filter((s) => s.zone === "2W" && s.status === "free").length;
     for (let i = 0; i < free2W; i += 1) {
-      await api.createEntry({ plateNumber: `KA10AA${1000 + i}`, vehicleType: "2W", gateId: "Entry-1" });
+      await api.createEntry({
+        plateNumber: `KA10AA${1000 + i}`,
+        vehicleType: "2W",
+        gateId: "Entry-1",
+      });
     }
     await expect(
-      api.createEntry({ plateNumber: "KA10AA9999", vehicleType: "2W", gateId: "Entry-2" }),
+      api.createEntry({
+        plateNumber: "KA10AA9999",
+        vehicleType: "2W",
+        gateId: "Entry-2",
+      }),
     ).rejects.toMatchObject({ status: 409, code: "LOT_FULL" });
   });
 
@@ -40,10 +52,13 @@ describe("mock API (SAD 4.3 shapes)", () => {
 
   test("exit by plate (lost ticket) adds the penalty", async () => {
     const api = createMockApi({ delayMs: 0 });
-    const receipt = await api.processExit({ plateNumber: "KA02CD5678", gateId: "Exit-2" });
+    const receipt = await api.processExit({
+      plateNumber: "KA02CD5678",
+      gateId: "Exit-2",
+    });
 
     expect(receipt.penaltyApplied).toBe(true);
-    expect(receipt.breakdown.lostTicketPenalty).toBe(100);
-    expect(receipt.fare).toBe(130); // 4h parked, 2W at 10/h = 30, plus 100 penalty
+    expect(receipt.breakdown.lostTicketPenalty).toBe(50);
+    expect(receipt.fare).toBe(85); // 4h parked: 2h at 10/h + 1h at 15/h, plus 50 penalty
   });
 });

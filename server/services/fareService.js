@@ -59,8 +59,7 @@ function validateFareConfig(config) {
   }
 
   for (const key of ["lostTicketPenalty", "overstayPenalty"]) {
-    if (config[key] !== undefined &&
-        (!Number.isFinite(config[key]) || config[key] < 0)) {
+    if (config[key] !== undefined && (!Number.isFinite(config[key]) || config[key] < 0)) {
       throw new TypeError(`${key} must be a non-negative number`);
     }
   }
@@ -70,9 +69,7 @@ function calculateBaseFare(durationHours, config) {
   const freeUntil = config.firstHourFree ? 1 : 0;
   if (durationHours <= freeUntil) return 0;
 
-  const tiers = [...config.tiers].sort(
-    (a, b) => a.afterHours - b.afterHours
-  );
+  const tiers = [...config.tiers].sort((a, b) => a.afterHours - b.afterHours);
   if (tiers.length === 0) {
     throw new TypeError("At least one fare tier is required");
   }
@@ -95,6 +92,39 @@ function calculateBaseFare(durationHours, config) {
   return fare;
 }
 
+function calculateFareDetails(
+  entryTimestamp,
+  exitTimestamp,
+  vehicleType,
+  options = {},
+  customConfig = DEFAULT_FARE_CONFIG,
+) {
+  if (!Object.prototype.hasOwnProperty.call(DEFAULT_FARE_CONFIG, vehicleType)) {
+    throw new TypeError("vehicleType must be either '2W' or '4W'");
+  }
+
+  const durationHours = getDurationHours(entryTimestamp, exitTimestamp);
+  const config = customConfig[vehicleType] || DEFAULT_FARE_CONFIG[vehicleType];
+  validateFareConfig(config);
+
+  const baseFare = calculateBaseFare(durationHours, config);
+  const lostTicketPenalty = options.lostTicket
+    ? Number(
+        config.lostTicketPenalty ?? DEFAULT_FARE_CONFIG[vehicleType].lostTicketPenalty,
+      )
+    : 0;
+  const overstayPenalty = options.overstay
+    ? Number(config.overstayPenalty ?? DEFAULT_FARE_CONFIG[vehicleType].overstayPenalty)
+    : 0;
+
+  return {
+    baseFare,
+    ...(lostTicketPenalty ? { lostTicketPenalty } : {}),
+    ...(overstayPenalty ? { overstayPenalty } : {}),
+    total: baseFare + lostTicketPenalty + overstayPenalty,
+  };
+}
+
 /**
  * Calculate a parking fee using elapsed hours without rounding fractional time.
  * options: { lostTicket?: boolean, overstay?: boolean }
@@ -105,25 +135,15 @@ function calculateFare(
   exitTimestamp,
   vehicleType,
   options = {},
-  customConfig = DEFAULT_FARE_CONFIG
+  customConfig = DEFAULT_FARE_CONFIG,
 ) {
-  if (!Object.prototype.hasOwnProperty.call(DEFAULT_FARE_CONFIG, vehicleType)) {
-    throw new TypeError("vehicleType must be either '2W' or '4W'");
-  }
-
-  const durationHours = getDurationHours(entryTimestamp, exitTimestamp);
-  const config = customConfig[vehicleType] || DEFAULT_FARE_CONFIG[vehicleType];
-  validateFareConfig(config);
-
-  let fare = calculateBaseFare(durationHours, config);
-  if (options.lostTicket) {
-    fare += Number(config.lostTicketPenalty ?? DEFAULT_FARE_CONFIG[vehicleType].lostTicketPenalty);
-  }
-  if (options.overstay) {
-    fare += Number(config.overstayPenalty ?? DEFAULT_FARE_CONFIG[vehicleType].overstayPenalty);
-  }
-
-  return fare;
+  return calculateFareDetails(
+    entryTimestamp,
+    exitTimestamp,
+    vehicleType,
+    options,
+    customConfig,
+  ).total;
 }
 
-module.exports = { calculateFare, DEFAULT_FARE_CONFIG };
+module.exports = { calculateFare, calculateFareDetails, DEFAULT_FARE_CONFIG };

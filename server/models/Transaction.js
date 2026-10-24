@@ -81,6 +81,13 @@ const transactionSchema = new mongoose.Schema(
 
 transactionSchema.index({ plateNumber: 1, status: 1 });
 transactionSchema.index({ status: 1, entryTimestamp: 1 });
+// A vehicle may have history, but it can occupy only one spot at a time.
+// The database constraint is required because two entry gates can race each
+// other; a service-level lookup alone would not be sufficient.
+transactionSchema.index(
+  { plateNumber: 1 },
+  { unique: true, partialFilterExpression: { status: "active" } },
+);
 
 module.exports =
   mongoose.models.Transaction || mongoose.model("Transaction", transactionSchema);

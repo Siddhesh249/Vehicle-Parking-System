@@ -37,10 +37,29 @@ const auditLogSchema = new mongoose.Schema(
       trim: true,
     },
   },
-  { timestamps: { createdAt: true, updatedAt: false } }
+  { timestamps: { createdAt: true, updatedAt: false } },
 );
 
 auditLogSchema.index({ createdAt: -1 });
 auditLogSchema.index({ action: 1, createdAt: -1 });
+
+function rejectMutation() {
+  throw new Error("Audit log entries are append-only");
+}
+
+// Keep the invariant at the model boundary rather than relying only on callers
+// to avoid update/delete methods.
+auditLogSchema.pre(
+  [
+    "updateOne",
+    "updateMany",
+    "findOneAndUpdate",
+    "replaceOne",
+    "deleteOne",
+    "deleteMany",
+    "findOneAndDelete",
+  ],
+  rejectMutation,
+);
 
 module.exports = mongoose.models.AuditLog || mongoose.model("AuditLog", auditLogSchema);

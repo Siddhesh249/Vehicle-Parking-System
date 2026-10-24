@@ -23,6 +23,10 @@ All models use Mongoose schemas and export the registered model when one already
 - `options.lostTicket` and `options.overstay` add the corresponding configured penalties.
 - Invalid dates, exit times before entry, unknown vehicle types, negative rates, and duplicate tier thresholds are rejected.
 
+`fareConfigService.js` loads a persisted `FareTierConfig` when one exists, so
+future Admin configuration changes affect subsequent exit calculations. The
+defaults remain the safe fallback until the initial rate tables are seeded.
+
 Example:
 
 ```js
@@ -31,7 +35,7 @@ const { calculateFare } = require("./services/fareService");
 const fare = calculateFare(
   new Date("2026-10-02T10:00:00Z"),
   new Date("2026-10-02T12:30:00Z"),
-  "4W"
+  "4W",
 );
 console.log(fare); // 30
 ```
