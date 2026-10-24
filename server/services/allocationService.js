@@ -14,6 +14,21 @@ function inputError(message) {
   return error;
 }
 
+function alreadyParkedError() {
+  const error = new Error("This vehicle already has an active parking transaction");
+  error.code = "ALREADY_PARKED";
+  error.statusCode = 409;
+  return error;
+}
+
+async function releaseClaimedSpot(spotId) {
+  await Spot.findOneAndUpdate(
+    { _id: spotId, status: "reserved" },
+    { $set: { status: "free", currentTransactionId: null } },
+    { new: true },
+  );
+}
+
 /**
  * Allocate a free spot for a vehicle.
  *
@@ -91,12 +106,11 @@ async function allocateSpot({ plateNumber, vehicleType, gateId, operatorId }) {
       }),
     };
   } catch (error) {
-    // Release the claim if creating the vehicle or transaction fails.
-    await Spot.findOneAndUpdate(
-      { _id: spot._id, status: "reserved" },
-      { $set: { status: "free", currentTransactionId: null } },
-      { new: true },
-    );
+    // Release the claim if creating the vehicle or transaction fails. A unique
+    // partial index on active transactions turns a concurrent duplicate entry
+    // into this recoverable path.
+    await releaseClaimedSpot(spot._id);
+    if (error && error.code === 11000) throw alreadyParkedError();
     throw error;
   }
 }

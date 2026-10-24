@@ -18,7 +18,7 @@
 
 "use strict";
 
-const { calculateFare } = require("../services/fareService");
+const { calculateFare, calculateFareDetails } = require("../services/fareService");
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 /**
@@ -63,6 +63,21 @@ describe("calculateFare — first hour free", () => {
   test("2W: exactly 60 minutes → ₹0", () => {
     const { entry, exit } = makeTimes(60);
     expect(calculateFare(entry, exit, "2W")).toBe(0);
+  });
+});
+
+describe("calculateFareDetails — receipt breakdown", () => {
+  test("separates the base fare and applicable penalties while retaining the total", () => {
+    const { entry, exit } = makeTimes(90);
+
+    expect(
+      calculateFareDetails(entry, exit, "4W", { lostTicket: true, overstay: true }),
+    ).toEqual({
+      baseFare: 10,
+      lostTicketPenalty: 100,
+      overstayPenalty: 200,
+      total: 310,
+    });
   });
 });
 
@@ -319,7 +334,7 @@ describe("calculateFare — edge cases", () => {
 describe("calculateFare — additional validation", () => {
   test("rejects invalid date inputs", () => {
     expect(() =>
-      calculateFare(new Date("invalid"), new Date("2026-10-02T12:00:00Z"), "4W")
+      calculateFare(new Date("invalid"), new Date("2026-10-02T12:00:00Z"), "4W"),
     ).toThrow("Entry and exit timestamps must be valid dates");
   });
 
@@ -350,7 +365,7 @@ describe("calculateFare — custom configuration validation", () => {
       },
     };
     expect(() => calculateFare(entry, exit, "4W", {}, config)).toThrow(
-      "Fare tier thresholds and rates must be non-negative numbers"
+      "Fare tier thresholds and rates must be non-negative numbers",
     );
   });
 
@@ -366,7 +381,7 @@ describe("calculateFare — custom configuration validation", () => {
       },
     };
     expect(() => calculateFare(entry, exit, "4W", {}, config)).toThrow(
-      "Fare tier thresholds must be unique"
+      "Fare tier thresholds must be unique",
     );
   });
 });

@@ -2,13 +2,13 @@
 
 ## 1. What this project is
 
-A Software Engineering course project (Group 14, Problem Statement No. 10) titled **Vehicle Parking System**, built on the **MERN stack** (MongoDB, Express, React, Node.js). 
+A Software Engineering course project (Group 14, Problem Statement No. 10) titled **Vehicle Parking System**, built on the **MERN stack** (MongoDB, Express, React, Node.js).
 
 **Team:** Siddhesh Dattatray Koditkar (PES2UG24CS502), Sumukh M Gowda (PES2UG24CS537), Sparsha Arun (PES2UG24CS513), Sinchana Kulkarni (PES2UG24CS504).
 
 ## 2. The core idea, in one paragraph
 
-A parking lot has multiple entry gates and multiple exit gates, each staffed by a Gate Operator. A car pulls up to an entry gate, the operator logs its details, and the system allots it a spot (in a two-wheeler or four-wheeler zone) — atomically, so two gates can never grab the same spot. When the car leaves, the exit operator looks the vehicle up (ideally by a ticket ID generated at entry, or by plate number if the ticket is lost — with a penalty in that case) and the system computes an exact, tiered fare. An Admin/Manager, separate from the operators, sees live analytics (revenue, occupancy) and the full raw database that operators are explicitly *not* allowed to see, and is the only one who can force a stuck/overstayed vehicle's spot to free up.
+A parking lot has multiple entry gates and multiple exit gates, each staffed by a Gate Operator. A car pulls up to an entry gate, the operator logs its details, and the system allots it a spot (in a two-wheeler or four-wheeler zone) — atomically, so two gates can never grab the same spot. When the car leaves, the exit operator looks the vehicle up (ideally by a ticket ID generated at entry, or by plate number if the ticket is lost — with a penalty in that case) and the system computes an exact, tiered fare. An Admin/Manager, separate from the operators, sees live analytics (revenue, occupancy) and the full raw database that operators are explicitly _not_ allowed to see, and is the only one who can force a stuck/overstayed vehicle's spot to free up.
 
 ## 3. The one architectural idea that shapes everything
 
@@ -33,7 +33,7 @@ This constraint is why concurrency-safe, atomic database writes matter so much h
 ## 6. Exit flow & fare rules
 
 1. Operator looks the vehicle up by Ticket ID (fast path) or by plate number (fallback — this is the "lost ticket" case, since without the ID a manual DB search is the only recourse).
-2. Losing the ticket triggers a **penalty**, added to the computed fare — the ticket ID's value *is* that it lets you skip this.
+2. Losing the ticket triggers a **penalty**, added to the computed fare — the ticket ID's value _is_ that it lets you skip this.
 3. Fare is computed on the **exact** duration (down to the second/decimal — no rounding): **first hour free**, then hourly charges that **increase every 2–3 hours**. Two-wheelers and four-wheelers have **independently configurable** rate tables.
 4. On confirmed exit, the spot is immediately marked free (live, across all tabs) and the finalized transaction (plate, times, duration, fare, gate, operator) is permanently recorded.
 
@@ -64,4 +64,4 @@ npm test
 
 `npm test` runs the server Jest suite followed by the client React Testing Library suite. The server suite uses a separate database named `<MONGO_DB>_test` (default `vehicle_parking_test`) and clears its collections between tests. Set `MONGO_URI` in `server/.env` when the local MongoDB uses a URI different from the defaults. For a local server without authentication, use `mongodb://127.0.0.1:27017/vehicle_parking`; for authenticated MongoDB, use a URI with credentials and an `authSource`. Never commit `.env` files.
 
-The server JWT secret is read from `JWT_SECRET`. The development fallback is for local tests only; production startup must provide a secret. The client initially exposes route stubs for Entry-1, Entry-2, Exit-1, Exit-2, and Admin so each console can be built independently against the API contract.
+The server JWT secret is read from `JWT_SECRET`. The development fallback is for local tests only; production startup must provide a secret. The client includes mocked Entry-1, Entry-2, Exit-1, Exit-2, and Admin consoles so UI work can proceed independently against the API contract. Replacing the mock transport with real HTTP and Socket.io wiring is explicitly Sprint 3 work.
