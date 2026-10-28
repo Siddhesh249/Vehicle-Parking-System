@@ -93,12 +93,12 @@ describe("Fare/Exit Service", () => {
       expect.objectContaining({
         $set: expect.objectContaining({ status: "completed", fare: 30 }),
       }),
-      expect.objectContaining({ new: true }),
+      expect.objectContaining({ returnDocument: "after" }),
     );
     expect(Spot.findOneAndUpdate).toHaveBeenCalledWith(
       { _id: "spot-1", status: "reserved" },
       { $set: { status: "free", currentTransactionId: null } },
-      { new: true },
+      { returnDocument: "after" },
     );
     expect(receipt).toEqual(
       expect.objectContaining({

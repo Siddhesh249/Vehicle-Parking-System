@@ -25,7 +25,7 @@ async function releaseClaimedSpot(spotId) {
   await Spot.findOneAndUpdate(
     { _id: spotId, status: "reserved" },
     { $set: { status: "free", currentTransactionId: null } },
-    { new: true },
+    { returnDocument: "after" },
   );
 }
 
@@ -57,7 +57,7 @@ async function allocateSpot({ plateNumber, vehicleType, gateId, operatorId }) {
   const spot = await Spot.findOneAndUpdate(
     { zone: vehicleType, status: "free" },
     { $set: { status: "reserved" } },
-    { new: true, sort: { spotNumber: 1 }, runValidators: true },
+    { returnDocument: "after", sort: { spotNumber: 1 }, runValidators: true },
   );
 
   if (!spot) {
@@ -74,7 +74,12 @@ async function allocateSpot({ plateNumber, vehicleType, gateId, operatorId }) {
         $set: { vehicleType },
         $setOnInsert: { plateNumber: normalizedPlate },
       },
-      { upsert: true, new: true, runValidators: true, setDefaultsOnInsert: true },
+      {
+        upsert: true,
+        returnDocument: "after",
+        runValidators: true,
+        setDefaultsOnInsert: true,
+      },
     );
 
     // The timestamp is server-generated and cannot be supplied by the client.

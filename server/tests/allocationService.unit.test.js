@@ -39,7 +39,7 @@ describe("allocateSpot", () => {
         expect.objectContaining({
           $set: expect.objectContaining({ status: "reserved" }),
         }),
-        expect.objectContaining({ new: true }),
+        expect.objectContaining({ returnDocument: "after" }),
       );
       expect(result).toEqual(
         expect.objectContaining({
@@ -87,7 +87,7 @@ describe("allocateSpot", () => {
         $set: { vehicleType: "2W" },
         $setOnInsert: { plateNumber: "KA01AB1234" },
       }),
-      expect.objectContaining({ upsert: true, new: true }),
+      expect.objectContaining({ upsert: true, returnDocument: "after" }),
     );
   });
 
@@ -158,7 +158,7 @@ describe("allocateSpot", () => {
     expect(Spot.findOneAndUpdate).toHaveBeenLastCalledWith(
       { _id: "spot-4", status: "reserved" },
       { $set: { status: "free", currentTransactionId: null } },
-      { new: true },
+      { returnDocument: "after" },
     );
   });
 });

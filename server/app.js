@@ -7,13 +7,18 @@ const mongoose = require("mongoose");
 const { Server } = require("socket.io");
 const { login } = require("./services/loginService");
 const { allocateSpot } = require("./services/allocationService");
-const { lookupByTicket, searchByPlate, processExit } = require("./services/fareExitService");
+const {
+  lookupByTicket,
+  searchByPlate,
+  processExit,
+} = require("./services/fareExitService");
 const { getOccupancy, getRevenue } = require("./services/analyticsService");
 const { listTransactions, listAuditEntries } = require("./services/adminQueryService");
 const { updateFareTiers, updateSpotCount } = require("./services/adminConfigService");
 const { notifyOverstay, forceRelease } = require("./services/overstayService");
 const { requireRole } = require("./middleware/authMiddleware");
 const { verifyToken } = require("./utils/jwtUtils");
+const Spot = require("./models/Spot");
 
 const app = express();
 const server = http.createServer(app);
@@ -29,6 +34,35 @@ const io = new Server(server, {
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
   },
 });
+
+function socketRoomFor(user) {
+  return user.role === "admin" ? "admin" : `gate:${user.gateId}`;
+}
+
+async function sendLotSnapshot(socket) {
+  const spots = await Spot.find({}, { spotNumber: 1, zone: 1, status: 1 })
+    .sort({ zone: 1, spotNumber: 1 })
+    .lean();
+  const occupied = spots.filter((spot) => spot.status === "reserved").length;
+
+  socket.emit("lot:snapshot", {
+    spots: spots.map((spot) => ({
+      id: String(spot._id),
+      spotNumber: spot.spotNumber,
+      zone: spot.zone,
+      status: spot.status,
+    })),
+    occupancy: {
+      total: spots.length ? (occupied / spots.length) * 100 : 0,
+      occupied,
+      totalSpots: spots.length,
+    },
+  });
+}
+
+function broadcastSpotUpdate(spotId, status) {
+  io.emit("spot:update", { spotId: String(spotId), status });
+}
 
 function authenticateToken(req, res, next) {
   const authorization = req.headers.authorization;
@@ -53,7 +87,10 @@ function requireGate(gatePrefix) {
     const { role, gateId } = req.user || {};
     if (role !== "operator" || !gateId || !gateId.startsWith(gatePrefix)) {
       return res.status(403).json({
-        error: { code: "FORBIDDEN", message: "This operator is not authorized for this gate" },
+        error: {
+          code: "FORBIDDEN",
+          message: "This operator is not authorized for this gate",
+        },
       });
     }
     return next();
@@ -110,6 +147,7 @@ app.post(
         gateId: req.user.gateId,
         operatorId: req.user.userId,
       });
+      broadcastSpotUpdate(result.spotId, "reserved");
       return res.status(201).json(result);
     } catch (error) {
       return sendServiceError(res, error);
@@ -132,19 +170,14 @@ app.get(
   },
 );
 
-app.get(
-  "/api/exit/search",
-  authenticateToken,
-  requireGate("Exit-"),
-  async (req, res) => {
-    try {
-      const transactions = await searchByPlate(req.query.plateNumber);
-      return res.status(200).json(transactions);
-    } catch (error) {
-      return sendServiceError(res, error);
-    }
-  },
-);
+app.get("/api/exit/search", authenticateToken, requireGate("Exit-"), async (req, res) => {
+  try {
+    const transactions = await searchByPlate(req.query.plateNumber);
+    return res.status(200).json(transactions);
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
 
 app.post(
   "/api/exit/process",
@@ -158,6 +191,7 @@ app.post(
         gateId: req.user.gateId,
         operatorId: req.user.userId,
       });
+      broadcastSpotUpdate(receipt.spotId, "free");
       return res.status(200).json(receipt);
     } catch (error) {
       return sendServiceError(res, error);
@@ -168,21 +202,31 @@ app.post(
 // Sprint 3 T2: admin analytics, transaction and audit-log reads.
 const requireAdmin = requireRole("admin");
 
-app.get("/api/admin/analytics/occupancy", authenticateToken, requireAdmin, async (_req, res) => {
-  try {
-    return res.status(200).json(await getOccupancy());
-  } catch (error) {
-    return sendServiceError(res, error);
-  }
-});
+app.get(
+  "/api/admin/analytics/occupancy",
+  authenticateToken,
+  requireAdmin,
+  async (_req, res) => {
+    try {
+      return res.status(200).json(await getOccupancy());
+    } catch (error) {
+      return sendServiceError(res, error);
+    }
+  },
+);
 
-app.get("/api/admin/analytics/revenue", authenticateToken, requireAdmin, async (_req, res) => {
-  try {
-    return res.status(200).json(await getRevenue());
-  } catch (error) {
-    return sendServiceError(res, error);
-  }
-});
+app.get(
+  "/api/admin/analytics/revenue",
+  authenticateToken,
+  requireAdmin,
+  async (_req, res) => {
+    try {
+      return res.status(200).json(await getRevenue());
+    } catch (error) {
+      return sendServiceError(res, error);
+    }
+  },
+);
 
 app.get("/api/admin/transactions", authenticateToken, requireAdmin, async (req, res) => {
   try {
@@ -203,30 +247,55 @@ app.get("/api/admin/audit-log", authenticateToken, requireAdmin, async (req, res
 });
 
 // Sprint 3 T2: gate operators report overstays only for their own gate.
-app.post("/api/overstay/notify", authenticateToken, requireRole("operator"), async (req, res) => {
-  const { vehicleId, gateId } = req.body || {};
-  if (gateId !== req.user.gateId) {
-    return res.status(403).json({
-      error: { code: "FORBIDDEN", message: "This operator is not authorized for this gate" },
-    });
-  }
+app.post(
+  "/api/overstay/notify",
+  authenticateToken,
+  requireRole("operator"),
+  async (req, res) => {
+    const { vehicleId, gateId } = req.body || {};
+    if (gateId !== req.user.gateId) {
+      return res.status(403).json({
+        error: {
+          code: "FORBIDDEN",
+          message: "This operator is not authorized for this gate",
+        },
+      });
+    }
 
-  try {
-    return res.status(200).json(await notifyOverstay({ vehicleId, gateId, operator: req.user }));
-  } catch (error) {
-    return sendServiceError(res, error);
-  }
-});
+    try {
+      const notification = await notifyOverstay({
+        vehicleId,
+        gateId,
+        operator: req.user,
+      });
+      io.to("admin").emit("overstay:alert", {
+        vehicleId: notification.vehicleId,
+        gateId: notification.gateId,
+        duration: notification.durationSeconds,
+      });
+      return res.status(200).json(notification);
+    } catch (error) {
+      return sendServiceError(res, error);
+    }
+  },
+);
 
 // Sprint 3 T2: admin configuration writes and overstay force-release.
-app.put("/api/admin/config/fare-tiers", authenticateToken, requireAdmin, async (req, res) => {
-  try {
-    const { vehicleType, tiers } = req.body || {};
-    return res.status(200).json(await updateFareTiers({ vehicleType, tiers }, req.user));
-  } catch (error) {
-    return sendServiceError(res, error);
-  }
-});
+app.put(
+  "/api/admin/config/fare-tiers",
+  authenticateToken,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const { vehicleType, tiers } = req.body || {};
+      return res
+        .status(200)
+        .json(await updateFareTiers({ vehicleType, tiers }, req.user));
+    } catch (error) {
+      return sendServiceError(res, error);
+    }
+  },
+);
 
 app.put("/api/admin/config/spots", authenticateToken, requireAdmin, async (req, res) => {
   try {
@@ -243,7 +312,9 @@ app.post(
   requireAdmin,
   async (req, res) => {
     try {
-      return res.status(200).json(await forceRelease({ vehicleId: req.params.id, admin: req.user }));
+      const result = await forceRelease({ vehicleId: req.params.id, admin: req.user });
+      broadcastSpotUpdate(result.spotId, "free");
+      return res.status(200).json(result);
     } catch (error) {
       return sendServiceError(res, error);
     }
@@ -251,11 +322,28 @@ app.post(
 );
 
 io.on("connection", (socket) => {
-  console.log(`Client connected: ${socket.id}`);
+  socket.on("identify", async (payload = {}, acknowledge = () => {}) => {
+    try {
+      const user = verifyToken(payload.token);
+      if (!user || !["operator", "admin"].includes(user.role)) {
+        throw new Error("The token does not identify an authorized user");
+      }
+      if (user.role === "operator" && !user.gateId) {
+        throw new Error("Operator tokens must include a gate assignment");
+      }
 
-  socket.on("disconnect", () => {
-    console.log(`Client disconnected: ${socket.id}`);
+      socket.data.user = user;
+      socket.join(socketRoomFor(user));
+      await sendLotSnapshot(socket);
+      acknowledge({ ok: true, role: user.role, gateId: user.gateId });
+    } catch (_error) {
+      const error = { code: "UNAUTHORIZED", message: "Invalid or expired socket token" };
+      socket.emit("identify:error", error);
+      acknowledge({ ok: false, error });
+    }
   });
+
+  socket.on("disconnect", () => {});
 });
 
-module.exports = { app, server, io };
+module.exports = { app, server, io, sendLotSnapshot };
