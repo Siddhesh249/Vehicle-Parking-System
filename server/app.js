@@ -6,6 +6,9 @@ const cors = require("cors");
 const mongoose = require("mongoose");
 const { Server } = require("socket.io");
 const { login } = require("./services/loginService");
+const { allocateSpot } = require("./services/allocationService");
+const { lookupByTicket, searchByPlate, processExit } = require("./services/fareExitService");
+const { verifyToken } = require("./utils/jwtUtils");
 
 const app = express();
 const server = http.createServer(app);
@@ -21,6 +24,43 @@ const io = new Server(server, {
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
   },
 });
+
+function authenticateToken(req, res, next) {
+  const authorization = req.headers.authorization;
+  if (typeof authorization !== "string" || !authorization.startsWith("Bearer ")) {
+    return res.status(401).json({
+      error: { code: "UNAUTHORIZED", message: "A valid Bearer token is required" },
+    });
+  }
+
+  try {
+    req.user = verifyToken(authorization.slice(7));
+    return next();
+  } catch (_error) {
+    return res.status(401).json({
+      error: { code: "UNAUTHORIZED", message: "Invalid or expired token" },
+    });
+  }
+}
+
+function requireGate(gatePrefix) {
+  return (req, res, next) => {
+    const { role, gateId } = req.user || {};
+    if (role !== "operator" || !gateId || !gateId.startsWith(gatePrefix)) {
+      return res.status(403).json({
+        error: { code: "FORBIDDEN", message: "This operator is not authorized for this gate" },
+      });
+    }
+    return next();
+  };
+}
+
+function sendServiceError(res, error) {
+  const status = Number.isInteger(error.statusCode) ? error.statusCode : 500;
+  const code = error.code || "INTERNAL_ERROR";
+  const message = status === 500 ? "An unexpected server error occurred" : error.message;
+  return res.status(status).json({ error: { code, message } });
+}
 
 app.get("/api/health", (_req, res) => {
   res.json({
@@ -51,6 +91,74 @@ app.post("/api/auth/login", async (req, res) => {
     return res.status(status).json({ error: { code, message: error.message } });
   }
 });
+
+// Sprint 3 T1: entry allocation API.
+app.post(
+  "/api/entry/vehicles",
+  authenticateToken,
+  requireGate("Entry-"),
+  async (req, res) => {
+    try {
+      const result = await allocateSpot({
+        plateNumber: req.body?.plateNumber,
+        vehicleType: req.body?.vehicleType,
+        gateId: req.user.gateId,
+        operatorId: req.user.userId,
+      });
+      return res.status(201).json(result);
+    } catch (error) {
+      return sendServiceError(res, error);
+    }
+  },
+);
+
+// Sprint 3 T1: exit lookup and settlement APIs.
+app.get(
+  "/api/exit/lookup/:ticketId",
+  authenticateToken,
+  requireGate("Exit-"),
+  async (req, res) => {
+    try {
+      const transaction = await lookupByTicket(req.params.ticketId);
+      return res.status(200).json(transaction);
+    } catch (error) {
+      return sendServiceError(res, error);
+    }
+  },
+);
+
+app.get(
+  "/api/exit/search",
+  authenticateToken,
+  requireGate("Exit-"),
+  async (req, res) => {
+    try {
+      const transactions = await searchByPlate(req.query.plateNumber);
+      return res.status(200).json(transactions);
+    } catch (error) {
+      return sendServiceError(res, error);
+    }
+  },
+);
+
+app.post(
+  "/api/exit/process",
+  authenticateToken,
+  requireGate("Exit-"),
+  async (req, res) => {
+    try {
+      const receipt = await processExit({
+        ticketId: req.body?.ticketId,
+        plateNumber: req.body?.plateNumber,
+        gateId: req.user.gateId,
+        operatorId: req.user.userId,
+      });
+      return res.status(200).json(receipt);
+    } catch (error) {
+      return sendServiceError(res, error);
+    }
+  },
+);
 
 io.on("connection", (socket) => {
   console.log(`Client connected: ${socket.id}`);
