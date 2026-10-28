@@ -8,6 +8,11 @@ const { Server } = require("socket.io");
 const { login } = require("./services/loginService");
 const { allocateSpot } = require("./services/allocationService");
 const { lookupByTicket, searchByPlate, processExit } = require("./services/fareExitService");
+const { getOccupancy, getRevenue } = require("./services/analyticsService");
+const { listTransactions, listAuditEntries } = require("./services/adminQueryService");
+const { updateFareTiers, updateSpotCount } = require("./services/adminConfigService");
+const { notifyOverstay, forceRelease } = require("./services/overstayService");
+const { requireRole } = require("./middleware/authMiddleware");
 const { verifyToken } = require("./utils/jwtUtils");
 
 const app = express();
@@ -154,6 +159,91 @@ app.post(
         operatorId: req.user.userId,
       });
       return res.status(200).json(receipt);
+    } catch (error) {
+      return sendServiceError(res, error);
+    }
+  },
+);
+
+// Sprint 3 T2: admin analytics, transaction and audit-log reads.
+const requireAdmin = requireRole("admin");
+
+app.get("/api/admin/analytics/occupancy", authenticateToken, requireAdmin, async (_req, res) => {
+  try {
+    return res.status(200).json(await getOccupancy());
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
+
+app.get("/api/admin/analytics/revenue", authenticateToken, requireAdmin, async (_req, res) => {
+  try {
+    return res.status(200).json(await getRevenue());
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
+
+app.get("/api/admin/transactions", authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { plate, from, to, gate } = req.query;
+    return res.status(200).json(await listTransactions({ plate, from, to, gate }));
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
+
+app.get("/api/admin/audit-log", authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { action, actor, from, to } = req.query;
+    return res.status(200).json(await listAuditEntries({ action, actor, from, to }));
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
+
+// Sprint 3 T2: gate operators report overstays only for their own gate.
+app.post("/api/overstay/notify", authenticateToken, requireRole("operator"), async (req, res) => {
+  const { vehicleId, gateId } = req.body || {};
+  if (gateId !== req.user.gateId) {
+    return res.status(403).json({
+      error: { code: "FORBIDDEN", message: "This operator is not authorized for this gate" },
+    });
+  }
+
+  try {
+    return res.status(200).json(await notifyOverstay({ vehicleId, gateId, operator: req.user }));
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
+
+// Sprint 3 T2: admin configuration writes and overstay force-release.
+app.put("/api/admin/config/fare-tiers", authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { vehicleType, tiers } = req.body || {};
+    return res.status(200).json(await updateFareTiers({ vehicleType, tiers }, req.user));
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
+
+app.put("/api/admin/config/spots", authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { zone, count } = req.body || {};
+    return res.status(200).json(await updateSpotCount({ zone, count }, req.user));
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
+
+app.post(
+  "/api/admin/vehicles/:id/force-release",
+  authenticateToken,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      return res.status(200).json(await forceRelease({ vehicleId: req.params.id, admin: req.user }));
     } catch (error) {
       return sendServiceError(res, error);
     }
