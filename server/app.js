@@ -8,6 +8,9 @@ const { Server } = require("socket.io");
 const { login } = require("./services/loginService");
 const { allocateSpot } = require("./services/allocationService");
 const { lookupByTicket, searchByPlate, processExit } = require("./services/fareExitService");
+const { getOccupancy, getRevenue } = require("./services/analyticsService");
+const { listTransactions, listAuditEntries } = require("./services/adminQueryService");
+const { requireRole } = require("./middleware/authMiddleware");
 const { verifyToken } = require("./utils/jwtUtils");
 
 const app = express();
@@ -159,6 +162,43 @@ app.post(
     }
   },
 );
+
+// Sprint 3 T2: admin analytics, transaction and audit-log reads.
+const requireAdmin = requireRole("admin");
+
+app.get("/api/admin/analytics/occupancy", authenticateToken, requireAdmin, async (_req, res) => {
+  try {
+    return res.status(200).json(await getOccupancy());
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
+
+app.get("/api/admin/analytics/revenue", authenticateToken, requireAdmin, async (_req, res) => {
+  try {
+    return res.status(200).json(await getRevenue());
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
+
+app.get("/api/admin/transactions", authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { plate, from, to, gate } = req.query;
+    return res.status(200).json(await listTransactions({ plate, from, to, gate }));
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
+
+app.get("/api/admin/audit-log", authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { action, actor, from, to } = req.query;
+    return res.status(200).json(await listAuditEntries({ action, actor, from, to }));
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
 
 io.on("connection", (socket) => {
   console.log(`Client connected: ${socket.id}`);
