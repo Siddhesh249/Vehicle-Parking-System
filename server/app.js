@@ -10,6 +10,8 @@ const { allocateSpot } = require("./services/allocationService");
 const { lookupByTicket, searchByPlate, processExit } = require("./services/fareExitService");
 const { getOccupancy, getRevenue } = require("./services/analyticsService");
 const { listTransactions, listAuditEntries } = require("./services/adminQueryService");
+const { updateFareTiers, updateSpotCount } = require("./services/adminConfigService");
+const { forceRelease } = require("./services/overstayService");
 const { requireRole } = require("./middleware/authMiddleware");
 const { verifyToken } = require("./utils/jwtUtils");
 
@@ -199,6 +201,38 @@ app.get("/api/admin/audit-log", authenticateToken, requireAdmin, async (req, res
     return sendServiceError(res, error);
   }
 });
+
+// Sprint 3 T2: admin configuration writes and overstay force-release.
+app.put("/api/admin/config/fare-tiers", authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { vehicleType, tiers } = req.body || {};
+    return res.status(200).json(await updateFareTiers({ vehicleType, tiers }, req.user));
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
+
+app.put("/api/admin/config/spots", authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { zone, count } = req.body || {};
+    return res.status(200).json(await updateSpotCount({ zone, count }, req.user));
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
+
+app.post(
+  "/api/admin/vehicles/:id/force-release",
+  authenticateToken,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      return res.status(200).json(await forceRelease({ vehicleId: req.params.id, admin: req.user }));
+    } catch (error) {
+      return sendServiceError(res, error);
+    }
+  },
+);
 
 io.on("connection", (socket) => {
   console.log(`Client connected: ${socket.id}`);
