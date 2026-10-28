@@ -113,7 +113,7 @@ async function processExit({
         penaltyApplied: lostTicket,
       },
     },
-    { new: true, runValidators: true },
+    { returnDocument: "after", runValidators: true },
   );
   if (!settledTransaction) {
     throw serviceError(
@@ -127,7 +127,7 @@ async function processExit({
     await Spot.findOneAndUpdate(
       { _id: settledTransaction.spotId, status: "reserved" },
       { $set: { status: "free", currentTransactionId: null } },
-      { new: true },
+      { returnDocument: "after" },
     );
   } catch (error) {
     // Do not report a completed exit while its spot remains unavailable. The
@@ -144,7 +144,7 @@ async function processExit({
           fare: 1,
         },
       },
-      { new: true },
+      { returnDocument: "after" },
     );
     throw error;
   }
@@ -152,6 +152,7 @@ async function processExit({
   return {
     receiptId: randomUUID(),
     ticketId: settledTransaction.ticketId,
+    spotId: String(settledTransaction.spotId),
     plateNumber: settledTransaction.plateNumber,
     entryTimestamp: settledTransaction.entryTimestamp,
     exitTimestamp: exitTime,

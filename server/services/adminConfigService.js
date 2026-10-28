@@ -23,7 +23,11 @@ function validateTiers(tiers) {
     throw serviceError("tiers must be a non-empty array", "INVALID_TIERS", 400);
   }
   tiers.forEach((tier, index) => {
-    if (!tier || !isNonNegativeNumber(tier.afterHours) || !isNonNegativeNumber(tier.rate)) {
+    if (
+      !tier ||
+      !isNonNegativeNumber(tier.afterHours) ||
+      !isNonNegativeNumber(tier.rate)
+    ) {
       throw serviceError(
         "Each tier needs a non-negative numeric afterHours and rate",
         "INVALID_TIERS",
@@ -47,11 +51,19 @@ async function updateFareTiers({ vehicleType, tiers } = {}, actor) {
   }
   validateTiers(tiers);
 
-  const storedTiers = tiers.map(({ afterHours, rate }) => ({ afterHours, ratePerHour: rate }));
+  const storedTiers = tiers.map(({ afterHours, rate }) => ({
+    afterHours,
+    ratePerHour: rate,
+  }));
   await FareTierConfig.findOneAndUpdate(
     { vehicleType },
     { $set: { tiers: storedTiers }, $setOnInsert: { vehicleType } },
-    { upsert: true, new: true, runValidators: true, setDefaultsOnInsert: true },
+    {
+      upsert: true,
+      returnDocument: "after",
+      runValidators: true,
+      setDefaultsOnInsert: true,
+    },
   );
 
   await writeAuditEntry({
@@ -103,7 +115,11 @@ async function updateSpotCount({ zone, count } = {}, actor) {
       await Spot.insertMany(spotNumbers.map((spotNumber) => ({ spotNumber, zone })));
     } catch (error) {
       if (error && error.code === 11000) {
-        throw serviceError("Spot configuration changed concurrently; retry", "CONFLICT", 409);
+        throw serviceError(
+          "Spot configuration changed concurrently; retry",
+          "CONFLICT",
+          409,
+        );
       }
       throw error;
     }

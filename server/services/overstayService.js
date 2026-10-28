@@ -102,7 +102,7 @@ async function forceRelease({ vehicleId, admin, now = new Date() }) {
         isOverstay: true,
       },
     },
-    { new: true, runValidators: true },
+    { returnDocument: "after", runValidators: true },
   );
   if (!settled) {
     throw serviceError("Vehicle has already exited", "ALREADY_EXITED", 409);
@@ -112,7 +112,7 @@ async function forceRelease({ vehicleId, admin, now = new Date() }) {
     await Spot.findOneAndUpdate(
       { _id: settled.spotId, status: "reserved" },
       { $set: { status: "free", currentTransactionId: null } },
-      { new: true },
+      { returnDocument: "after" },
     );
   } catch (error) {
     await Transaction.findOneAndUpdate(
@@ -121,7 +121,7 @@ async function forceRelease({ vehicleId, admin, now = new Date() }) {
         $set: { status: "active", penaltyApplied: false },
         $unset: { exitTimestamp: 1, durationSeconds: 1, fare: 1 },
       },
-      { new: true },
+      { returnDocument: "after" },
     );
     throw error;
   }
