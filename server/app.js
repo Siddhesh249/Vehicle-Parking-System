@@ -11,7 +11,7 @@ const { lookupByTicket, searchByPlate, processExit } = require("./services/fareE
 const { getOccupancy, getRevenue } = require("./services/analyticsService");
 const { listTransactions, listAuditEntries } = require("./services/adminQueryService");
 const { updateFareTiers, updateSpotCount } = require("./services/adminConfigService");
-const { forceRelease } = require("./services/overstayService");
+const { notifyOverstay, forceRelease } = require("./services/overstayService");
 const { requireRole } = require("./middleware/authMiddleware");
 const { verifyToken } = require("./utils/jwtUtils");
 
@@ -197,6 +197,22 @@ app.get("/api/admin/audit-log", authenticateToken, requireAdmin, async (req, res
   try {
     const { action, actor, from, to } = req.query;
     return res.status(200).json(await listAuditEntries({ action, actor, from, to }));
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
+
+// Sprint 3 T2: gate operators report overstays only for their own gate.
+app.post("/api/overstay/notify", authenticateToken, requireRole("operator"), async (req, res) => {
+  const { vehicleId, gateId } = req.body || {};
+  if (gateId !== req.user.gateId) {
+    return res.status(403).json({
+      error: { code: "FORBIDDEN", message: "This operator is not authorized for this gate" },
+    });
+  }
+
+  try {
+    return res.status(200).json(await notifyOverstay({ vehicleId, gateId, operator: req.user }));
   } catch (error) {
     return sendServiceError(res, error);
   }
