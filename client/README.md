@@ -23,8 +23,10 @@ By default the client runs on the in-memory mock, so it works without a server. 
 real API and live Socket.io updates:
 
 1. Start MongoDB and the server (`server/README.md`) so it listens on `127.0.0.1:5000`.
-2. In `client/`, copy `.env.example` to `.env` and set `VITE_API_MODE=real`.
-3. `npm run dev`, open `/login`, and sign in with an account from the seed script.
+2. Seed the demo accounts and initial spots with `npm --prefix server run seed`.
+3. In `client/`, copy `.env.example` to `.env` and set `VITE_API_MODE=real`.
+4. `npm run dev`, open `/login`, and sign in as `entry1`, `entry2`, `exit1`, `exit2`, or
+   `admin`. The local seed password is `password123` unless `SEED_PASSWORD` was set.
 
 `vite.config.js` proxies `/api` and `/socket.io` to the server. The session (token, role, gate) is
 stored per browser tab in `sessionStorage`, so different tabs can be different gates.

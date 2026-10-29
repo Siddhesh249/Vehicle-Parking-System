@@ -2,22 +2,10 @@ require("dotenv").config({ quiet: true });
 
 const mongoose = require("mongoose");
 const { server } = require("./app");
+const { getMongoUri } = require("./utils/database");
 
 async function start() {
-  const user = encodeURIComponent(process.env.MONGO_USER || "");
-  const password = encodeURIComponent(process.env.MONGO_PASSWORD || "");
-  const host = process.env.MONGO_HOST || "127.0.0.1";
-  const port = process.env.MONGO_PORT || "27017";
-  const database = process.env.MONGO_DB || "vehicle_parking";
-  const authDatabase = encodeURIComponent(process.env.MONGO_AUTH_DB || "vehicle_parking");
-
-  const mongoUri =
-    process.env.MONGO_URI ||
-    (user && password
-      ? `mongodb://${user}:${password}@${host}:${port}/${database}?authSource=${authDatabase}`
-      : `mongodb://${host}:${port}/${database}`);
-
-  await mongoose.connect(mongoUri);
+  await mongoose.connect(getMongoUri());
   console.log("Connected to MongoDB");
 
   const serverPort = Number(process.env.PORT) || 5000;
