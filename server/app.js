@@ -39,13 +39,34 @@ function socketRoomFor(user) {
   return user.role === "admin" ? "admin" : `gate:${user.gateId}`;
 }
 
-async function sendLotSnapshot(socket) {
-  const spots = await Spot.find({}, { spotNumber: 1, zone: 1, status: 1 })
+function percentage(part, whole) {
+  if (whole === 0) return 0;
+  return Math.round((part / whole) * 10000) / 100;
+}
+
+/** Build the full lot state shared by GET /api/lot/status and lot:snapshot. */
+async function buildLotSnapshot({ zone } = {}) {
+  const filter = zone ? { zone } : {};
+  const spots = await Spot.find(filter, { spotNumber: 1, zone: 1, status: 1 })
     .sort({ zone: 1, spotNumber: 1 })
     .lean();
-  const occupied = spots.filter((spot) => spot.status === "reserved").length;
 
-  socket.emit("lot:snapshot", {
+  const byZone = {
+    "2W": { occupied: 0, total: 0, pct: 0 },
+    "4W": { occupied: 0, total: 0, pct: 0 },
+  };
+  for (const spot of spots) {
+    const summary = byZone[spot.zone];
+    if (!summary) continue;
+    summary.total += 1;
+    if (spot.status === "reserved") summary.occupied += 1;
+  }
+  for (const summary of Object.values(byZone)) {
+    summary.pct = percentage(summary.occupied, summary.total);
+  }
+
+  const occupied = spots.filter((spot) => spot.status === "reserved").length;
+  return {
     spots: spots.map((spot) => ({
       id: String(spot._id),
       spotNumber: spot.spotNumber,
@@ -53,15 +74,30 @@ async function sendLotSnapshot(socket) {
       status: spot.status,
     })),
     occupancy: {
-      total: spots.length ? (occupied / spots.length) * 100 : 0,
+      totalPct: percentage(occupied, spots.length),
       occupied,
       totalSpots: spots.length,
+      byZone,
     },
-  });
+  };
+}
+
+async function sendLotSnapshot(socket) {
+  socket.emit("lot:snapshot", await buildLotSnapshot());
 }
 
 function broadcastSpotUpdate(spotId, status) {
-  io.emit("spot:update", { spotId: String(spotId), status });
+  io.to("authenticated").emit("spot:update", { spotId: String(spotId), status });
+}
+
+// A snapshot makes late or reconnecting clients converge even if they missed
+// an incremental spot:update. Keep it off the request path: the mutation has
+// already committed and clients still get the event immediately.
+function broadcastLotSnapshot() {
+  if (mongoose.connection.readyState !== 1) return;
+  buildLotSnapshot()
+    .then((snapshot) => io.to("authenticated").emit("lot:snapshot", snapshot))
+    .catch(() => {});
 }
 
 function authenticateToken(req, res, next) {
@@ -111,6 +147,22 @@ app.get("/api/health", (_req, res) => {
   });
 });
 
+// Sprint 3 T4: the lot map loads its initial state over REST, then live updates
+// keep every session in sync (VPS-F-020, VPS-F-022).
+app.get("/api/lot/status", authenticateToken, async (req, res) => {
+  const { zone } = req.query;
+  if (zone !== undefined && !["2W", "4W"].includes(zone)) {
+    return res.status(400).json({
+      error: { code: "INVALID_REQUEST", message: "zone must be either '2W' or '4W'" },
+    });
+  }
+  try {
+    return res.status(200).json(await buildLotSnapshot({ zone }));
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
+
 app.post("/api/auth/login", async (req, res) => {
   const { username, password } = req.body || {};
   if (
@@ -148,6 +200,7 @@ app.post(
         operatorId: req.user.userId,
       });
       broadcastSpotUpdate(result.spotId, "reserved");
+      broadcastLotSnapshot();
       return res.status(201).json(result);
     } catch (error) {
       return sendServiceError(res, error);
@@ -192,6 +245,7 @@ app.post(
         operatorId: req.user.userId,
       });
       broadcastSpotUpdate(receipt.spotId, "free");
+      broadcastLotSnapshot();
       return res.status(200).json(receipt);
     } catch (error) {
       return sendServiceError(res, error);
@@ -270,6 +324,8 @@ app.post(
       });
       io.to("admin").emit("overstay:alert", {
         vehicleId: notification.vehicleId,
+        ticketId: notification.ticketId,
+        plateNumber: notification.plateNumber,
         gateId: notification.gateId,
         duration: notification.durationSeconds,
       });
@@ -300,7 +356,9 @@ app.put(
 app.put("/api/admin/config/spots", authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { zone, count } = req.body || {};
-    return res.status(200).json(await updateSpotCount({ zone, count }, req.user));
+    const result = await updateSpotCount({ zone, count }, req.user);
+    broadcastLotSnapshot();
+    return res.status(200).json(result);
   } catch (error) {
     return sendServiceError(res, error);
   }
@@ -314,6 +372,7 @@ app.post(
     try {
       const result = await forceRelease({ vehicleId: req.params.id, admin: req.user });
       broadcastSpotUpdate(result.spotId, "free");
+      broadcastLotSnapshot();
       return res.status(200).json(result);
     } catch (error) {
       return sendServiceError(res, error);
@@ -333,6 +392,7 @@ io.on("connection", (socket) => {
       }
 
       socket.data.user = user;
+      socket.join("authenticated");
       socket.join(socketRoomFor(user));
       await sendLotSnapshot(socket);
       acknowledge({ ok: true, role: user.role, gateId: user.gateId });

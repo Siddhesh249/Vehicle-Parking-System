@@ -62,6 +62,15 @@ npm ci --prefix client
 npm test
 ```
 
-`npm test` runs the server Jest suite followed by the client React Testing Library suite. The server suite uses a separate database named `<MONGO_DB>_test` (default `vehicle_parking_test`) and clears its collections between tests. Set `MONGO_URI` in `server/.env` when the local MongoDB uses a URI different from the defaults. For a local server without authentication, use `mongodb://127.0.0.1:27017/vehicle_parking`; for authenticated MongoDB, use a URI with credentials and an `authSource`. Never commit `.env` files.
+`npm test` runs the server Jest suite followed by the client React Testing Library suite. The server suite uses a separate database named `<MONGO_DB>_test` (default `vehicle_parking_test`) and clears its collections between tests. Set `MONGO_URI` in `server/.env` when the local MongoDB uses a URI different from the defaults. For a local server without authentication, use `mongodb://127.0.0.1:27017/vehicle_parking`; for authenticated MongoDB, use a URI with credentials and an `authSource`. Never commit `.env` files. Re-run `npm ci` in the package whose dependencies changed before running the app or tests.
 
-The server JWT secret is read from `JWT_SECRET`. The development fallback is for local tests only; production startup must provide a secret. The client includes mocked Entry-1, Entry-2, Exit-1, Exit-2, and Admin consoles so UI work can proceed independently against the API contract. Replacing the mock transport with real HTTP and Socket.io wiring is explicitly Sprint 3 work.
+To run the real HTTP + Socket.io application, seed the four gate accounts, the admin account, and the initial spot layout once:
+
+```bash
+npm --prefix server run seed
+npm --prefix server run dev
+```
+
+Then set `VITE_API_MODE=real` in `client/.env` and run `npm --prefix client run dev` (see `client/README.md`). The local seed accounts are `entry1`, `entry2`, `exit1`, `exit2`, and `admin`, all with password `password123` unless `SEED_PASSWORD` is set. The seed is idempotent and safe to re-run.
+
+The server JWT secret is read from `JWT_SECRET`. The development fallback is for local tests only; production startup must provide a secret. The client defaults to the in-memory mock so UI work can run without a backend; `VITE_API_MODE=real` switches it to the real REST and Socket.io transport.

@@ -41,8 +41,10 @@ export default function LotMap({ api, realtime }) {
                 .filter((spot) => spot.zone === zone)
                 .map((spot) => (
                   <li key={spot.id} className={`spot spot-${spot.status}`}>
-                    <span className="spot-id">{spot.id}</span>
-                    <span className="spot-status">{LABELS[spot.status] ?? spot.status}</span>
+                    <span className="spot-id">{spot.spotNumber ?? spot.id}</span>
+                    <span className="spot-status">
+                      {LABELS[spot.status] ?? spot.status}
+                    </span>
                   </li>
                 ))}
             </ul>

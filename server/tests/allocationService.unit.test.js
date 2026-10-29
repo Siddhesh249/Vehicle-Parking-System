@@ -4,10 +4,12 @@
 jest.mock("../models/Spot", () => ({ findOneAndUpdate: jest.fn() }));
 jest.mock("../models/Vehicle", () => ({ findOneAndUpdate: jest.fn() }));
 jest.mock("../models/Transaction", () => ({ create: jest.fn() }));
+jest.mock("../services/auditService", () => ({ writeAuditEntry: jest.fn() }));
 
 const Spot = require("../models/Spot");
 const Vehicle = require("../models/Vehicle");
 const Transaction = require("../models/Transaction");
+const { writeAuditEntry } = require("../services/auditService");
 const { allocateSpot } = require("../services/allocationService");
 
 const input = (overrides = {}) => ({
@@ -19,7 +21,10 @@ const input = (overrides = {}) => ({
 });
 
 describe("allocateSpot", () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    writeAuditEntry.mockResolvedValue({});
+  });
 
   test.each([["2W"], ["4W"]])(
     "atomically claims only a free spot in the %s zone",
@@ -56,6 +61,14 @@ describe("allocateSpot", () => {
           spotId: "spot-1",
           entryGateId: "Entry-1",
           entryOperatorId: "operator-1",
+        }),
+      );
+      expect(writeAuditEntry).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: "VEHICLE_ENTRY",
+          actorId: "operator-1",
+          actorRole: "operator",
+          details: expect.objectContaining({ spotId: "spot-1", gateId: "Entry-1" }),
         }),
       );
     },

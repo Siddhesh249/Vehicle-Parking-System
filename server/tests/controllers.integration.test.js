@@ -1,21 +1,109 @@
 /** Sprint 3 — T1/T2: HTTP controller acceptance contracts (SAD 4.3.2–4.3.6). */
 "use strict";
 
+const mongoose = require("mongoose");
 const request = require("supertest");
+const { MongoMemoryServer } = require("mongodb-memory-server");
 const { app } = require("../app");
+const Spot = require("../models/Spot");
+const Transaction = require("../models/Transaction");
+const AuditLog = require("../models/AuditLog");
 const { signToken } = require("../utils/jwtUtils");
 
+jest.setTimeout(60000);
+
+const OPERATOR_IDS = {
+  "Entry-1": new mongoose.Types.ObjectId(),
+  "Entry-2": new mongoose.Types.ObjectId(),
+  "Exit-1": new mongoose.Types.ObjectId(),
+  "Exit-2": new mongoose.Types.ObjectId(),
+};
+const ADMIN_ID = new mongoose.Types.ObjectId();
+
 const operatorToken = (gateId) =>
-  signToken({ userId: `operator-${gateId}`, role: "operator", gateId });
-const adminToken = () => signToken({ userId: "admin-1", role: "admin" });
+  signToken({
+    userId: OPERATOR_IDS[gateId].toString(),
+    role: "operator",
+    gateId,
+  });
+const adminToken = () => signToken({ userId: ADMIN_ID.toString(), role: "admin" });
 const auth = (token) => ({ Authorization: `Bearer ${token}` });
 
 describe("S3-T1 — entry and exit HTTP controllers", () => {
+  let mongo;
+
+  beforeAll(async () => {
+    mongo = await MongoMemoryServer.create();
+    await mongoose.connect(mongo.getUri());
+  });
+
+  beforeEach(async () => {
+    await mongoose.connection.dropDatabase();
+
+    const spots = await Spot.create([
+      { spotNumber: "2W-001", zone: "2W", status: "reserved" },
+      { spotNumber: "4W-001", zone: "4W" },
+      { spotNumber: "4W-002", zone: "4W", status: "reserved" },
+      { spotNumber: "4W-003", zone: "4W", status: "reserved" },
+      { spotNumber: "4W-004", zone: "4W", status: "reserved" },
+    ]);
+    const byNumber = Object.fromEntries(spots.map((spot) => [spot.spotNumber, spot._id]));
+    const entryTimestamp = new Date(Date.now() - 3 * 60 * 60 * 1000);
+
+    await Transaction.create([
+      {
+        ticketId: "TKT-S3-001",
+        plateNumber: "KA01AB1234",
+        vehicleType: "4W",
+        spotId: byNumber["4W-004"],
+        entryGateId: "Entry-1",
+        entryOperatorId: OPERATOR_IDS["Entry-1"],
+        entryTimestamp,
+        status: "active",
+      },
+      {
+        ticketId: "TKT-S3-2W",
+        plateNumber: "KA02CD5678",
+        vehicleType: "2W",
+        spotId: byNumber["2W-001"],
+        entryGateId: "Entry-2",
+        entryOperatorId: OPERATOR_IDS["Entry-2"],
+        entryTimestamp,
+        status: "active",
+      },
+      {
+        ticketId: "TKT-S3-EXITED",
+        plateNumber: "KA03EX0001",
+        vehicleType: "4W",
+        spotId: byNumber["4W-003"],
+        entryGateId: "Entry-1",
+        entryOperatorId: OPERATOR_IDS["Entry-1"],
+        entryTimestamp,
+        status: "active",
+      },
+      {
+        ticketId: "vehicle-overstay-1",
+        plateNumber: "KA05OV0001",
+        vehicleType: "4W",
+        spotId: byNumber["4W-002"],
+        entryGateId: "Entry-1",
+        entryOperatorId: OPERATOR_IDS["Entry-1"],
+        entryTimestamp,
+        status: "active",
+      },
+    ]);
+  });
+
+  afterAll(async () => {
+    await mongoose.disconnect();
+    if (mongo) await mongo.stop();
+  });
+
   test("creates an entry and returns a ticket, assigned spot, zone, and QR payload", async () => {
     const response = await request(app)
       .post("/api/entry/vehicles")
       .set(auth(operatorToken("Entry-1")))
-      .send({ plateNumber: "KA01AB1234", vehicleType: "4W", gateId: "Entry-1" })
+      .send({ plateNumber: "KA09EN1234", vehicleType: "4W", gateId: "Entry-1" })
       .expect(201);
 
     expect(response.body).toEqual(
@@ -26,14 +114,29 @@ describe("S3-T1 — entry and exit HTTP controllers", () => {
         qrPayload: expect.any(String),
       }),
     );
+    await expect(
+      AuditLog.findOne({
+        action: "VEHICLE_ENTRY",
+        "details.ticketId": response.body.ticketId,
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        actorRole: "operator",
+        actorId: OPERATOR_IDS["Entry-1"],
+      }),
+    );
   });
 
-  test("rejects an entry request from a token scoped to the other entry gate", async () => {
-    await request(app)
+  test("uses the token's gate instead of a spoofed gateId in the entry body", async () => {
+    const response = await request(app)
       .post("/api/entry/vehicles")
       .set(auth(operatorToken("Entry-2")))
-      .send({ plateNumber: "KA01AB1234", vehicleType: "4W", gateId: "Entry-1" })
-      .expect(403);
+      .send({ plateNumber: "KA09GATE2", vehicleType: "4W", gateId: "Entry-1" })
+      .expect(201);
+
+    await expect(
+      Transaction.findOne({ ticketId: response.body.ticketId }).lean(),
+    ).resolves.toEqual(expect.objectContaining({ entryGateId: "Entry-2" }));
   });
 
   test("rejects unauthenticated entry requests", async () => {
@@ -62,7 +165,10 @@ describe("S3-T1 — entry and exit HTTP controllers", () => {
       .expect(200);
 
     expect(response.body).toEqual(
-      expect.objectContaining({ ticketId: "TKT-S3-001", plateNumber: expect.any(String) }),
+      expect.objectContaining({
+        ticketId: "TKT-S3-001",
+        plateNumber: expect.any(String),
+      }),
     );
   });
 
@@ -101,6 +207,14 @@ describe("S3-T1 — entry and exit HTTP controllers", () => {
         receiptId: expect.any(String),
       }),
     );
+    await expect(
+      AuditLog.findOne({ action: "VEHICLE_EXIT", "details.ticketId": "TKT-S3-001" }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        actorRole: "operator",
+        actorId: OPERATOR_IDS["Exit-1"],
+      }),
+    );
   });
 
   test("settles a lost-ticket exit by plate and indicates the penalty", async () => {
@@ -111,17 +225,119 @@ describe("S3-T1 — entry and exit HTTP controllers", () => {
       .expect(200);
 
     expect(response.body.penaltyApplied).toBe(true);
-    expect(response.body.breakdown).toEqual(expect.objectContaining({ lostTicketPenalty: expect.any(Number) }));
+    expect(response.body.breakdown).toEqual(
+      expect.objectContaining({ lostTicketPenalty: expect.any(Number) }),
+    );
   });
 
   test("rejects a repeated exit with 409 and does not settle the vehicle twice", async () => {
     const body = { ticketId: "TKT-S3-EXITED", gateId: "Exit-1" };
-    await request(app).post("/api/exit/process").set(auth(operatorToken("Exit-1"))).send(body).expect(200);
-    await request(app).post("/api/exit/process").set(auth(operatorToken("Exit-1"))).send(body).expect(409);
+    await request(app)
+      .post("/api/exit/process")
+      .set(auth(operatorToken("Exit-1")))
+      .send(body)
+      .expect(200);
+    await request(app)
+      .post("/api/exit/process")
+      .set(auth(operatorToken("Exit-1")))
+      .send(body)
+      .expect(409);
+  });
+
+  test("returns the current authenticated lot map", async () => {
+    await request(app).get("/api/lot/status").expect(401);
+
+    const response = await request(app)
+      .get("/api/lot/status")
+      .set(auth(operatorToken("Exit-1")))
+      .expect(200);
+
+    expect(response.body.spots).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: expect.any(String),
+          spotNumber: "4W-001",
+          zone: "4W",
+          status: "free",
+        }),
+      ]),
+    );
+    expect(response.body.occupancy).toEqual(
+      expect.objectContaining({ occupied: 4, totalSpots: 5 }),
+    );
   });
 });
 
 describe("S3-T2 — admin and overstay HTTP controllers", () => {
+  let mongo;
+
+  beforeAll(async () => {
+    mongo = await MongoMemoryServer.create();
+    await mongoose.connect(mongo.getUri());
+  });
+
+  beforeEach(async () => {
+    await mongoose.connection.dropDatabase();
+
+    const spots = await Spot.create([
+      { spotNumber: "2W-001", zone: "2W", status: "reserved" },
+      { spotNumber: "4W-001", zone: "4W" },
+      { spotNumber: "4W-002", zone: "4W", status: "reserved" },
+      { spotNumber: "4W-003", zone: "4W", status: "reserved" },
+      { spotNumber: "4W-004", zone: "4W", status: "reserved" },
+    ]);
+    const byNumber = Object.fromEntries(spots.map((spot) => [spot.spotNumber, spot._id]));
+    const entryTimestamp = new Date(Date.now() - 3 * 60 * 60 * 1000);
+
+    await Transaction.create([
+      {
+        ticketId: "TKT-S3-001",
+        plateNumber: "KA01AB1234",
+        vehicleType: "4W",
+        spotId: byNumber["4W-004"],
+        entryGateId: "Entry-1",
+        entryOperatorId: OPERATOR_IDS["Entry-1"],
+        entryTimestamp,
+        status: "active",
+      },
+      {
+        ticketId: "TKT-S3-2W",
+        plateNumber: "KA02CD5678",
+        vehicleType: "2W",
+        spotId: byNumber["2W-001"],
+        entryGateId: "Entry-2",
+        entryOperatorId: OPERATOR_IDS["Entry-2"],
+        entryTimestamp,
+        status: "active",
+      },
+      {
+        ticketId: "TKT-S3-EXITED",
+        plateNumber: "KA03EX0001",
+        vehicleType: "4W",
+        spotId: byNumber["4W-003"],
+        entryGateId: "Entry-1",
+        entryOperatorId: OPERATOR_IDS["Entry-1"],
+        entryTimestamp,
+        status: "active",
+      },
+      {
+        ticketId: "vehicle-overstay-1",
+        plateNumber: "KA05OV0001",
+        vehicleType: "4W",
+        spotId: byNumber["4W-002"],
+        entryGateId: "Entry-1",
+        entryOperatorId: OPERATOR_IDS["Entry-1"],
+        entryTimestamp,
+        status: "active",
+      },
+    ]);
+  });
+
+  afterAll(async () => {
+    await mongoose.disconnect();
+    if (mongo) await mongo.stop();
+  });
+
   test("rejects operator tokens on all admin-only read and write routes", async () => {
     const headers = auth(operatorToken("Exit-1"));
     const responses = await Promise.all([
@@ -151,7 +367,13 @@ describe("S3-T2 — admin and overstay HTTP controllers", () => {
     await request(app)
       .put("/api/admin/config/fare-tiers")
       .set(auth(adminToken()))
-      .send({ vehicleType: "4W", tiers: [{ afterHours: 1, rate: 20 }, { afterHours: 3, rate: 30 }] })
+      .send({
+        vehicleType: "4W",
+        tiers: [
+          { afterHours: 1, rate: 20 },
+          { afterHours: 3, rate: 30 },
+        ],
+      })
       .expect(200);
 
     await request(app)

@@ -5,6 +5,7 @@ const Transaction = require("../models/Transaction");
 const Spot = require("../models/Spot");
 const { calculateFareDetails } = require("./fareService");
 const { getFareConfig } = require("./fareConfigService");
+const { writeAuditEntry } = require("./auditService");
 
 function serviceError(message, code, statusCode) {
   const error = new Error(message);
@@ -15,14 +16,14 @@ function serviceError(message, code, statusCode) {
 
 function normalizePlate(plateNumber) {
   if (typeof plateNumber !== "string" || !plateNumber.trim()) {
-    throw new TypeError("plateNumber must be a non-empty string");
+    throw serviceError("plateNumber must be a non-empty string", "INVALID_REQUEST", 400);
   }
   return plateNumber.trim().toUpperCase();
 }
 
 async function lookupByTicket(ticketId) {
   if (typeof ticketId !== "string" || !ticketId.trim()) {
-    throw new TypeError("ticketId must be a non-empty string");
+    throw serviceError("ticketId must be a non-empty string", "INVALID_REQUEST", 400);
   }
   const transaction = await Transaction.findOne({
     ticketId: ticketId.trim(),
@@ -54,15 +55,18 @@ async function processExit({
   exitTimestamp = new Date(),
 } = {}) {
   if (!gateId || !operatorId) {
-    throw new TypeError("gateId and operatorId are required");
+    throw serviceError("gateId and operatorId are required", "INVALID_REQUEST", 400);
   }
   const exitTime = new Date(exitTimestamp);
   if (!Number.isFinite(exitTime.getTime())) {
-    throw new TypeError("exitTimestamp must be a valid date");
+    throw serviceError("exitTimestamp must be a valid date", "INVALID_REQUEST", 400);
   }
 
   let transaction;
   const lostTicket = !(typeof ticketId === "string" && ticketId.trim());
+  if (lostTicket && !(typeof plateNumber === "string" && plateNumber.trim())) {
+    throw serviceError("A ticketId or plateNumber is required", "INVALID_REQUEST", 400);
+  }
   try {
     if (!lostTicket) transaction = await lookupByTicket(ticketId);
     else {
@@ -148,6 +152,22 @@ async function processExit({
     );
     throw error;
   }
+
+  await writeAuditEntry({
+    action: "VEHICLE_EXIT",
+    actorId: operatorId,
+    actorRole: "operator",
+    details: {
+      transactionId: String(settledTransaction._id),
+      ticketId: settledTransaction.ticketId,
+      plateNumber: settledTransaction.plateNumber,
+      spotId: String(settledTransaction.spotId),
+      gateId,
+      fare: fareDetails.total,
+      durationSeconds,
+      penaltyApplied: lostTicket,
+    },
+  });
 
   return {
     receiptId: randomUUID(),

@@ -43,6 +43,16 @@ function App() {
   const currentConsole = consoles.find(({ path }) => path === currentPath);
   const isLogin = currentPath === "/login";
   const session = isReal ? getSession() : null;
+  // The server rejects cross-gate requests anyway; this keeps the visible
+  // console from pretending the session has access it does not have.
+  const canUseConsole =
+    !isReal ||
+    Boolean(
+      session &&
+      (currentConsole?.role === "Admin"
+        ? session.role === "admin"
+        : session.gateId && session.gateId === currentConsole?.gateId),
+    );
 
   return (
     <main className="parking-app">
@@ -107,6 +117,14 @@ function App() {
             <section className="console-panel">
               <p>
                 Sign in to use this console. <a href="/login">Go to sign in</a>
+              </p>
+            </section>
+          ) : isReal && !canUseConsole ? (
+            <section className="console-panel">
+              <p role="alert">
+                This account is signed in as {session.gateId ?? session.role}, not{" "}
+                {currentConsole.gateId ?? currentConsole.role}.{" "}
+                <a href={homePathFor(session)}>Go to your console</a>
               </p>
             </section>
           ) : (

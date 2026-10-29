@@ -13,7 +13,9 @@ jobs:
 
     services:
       mongodb:
-        image: mongo:8
+        # Pin to 8.2: the mongo:8 tag currently resolves to a release that
+        # refuses to start on the runners' 6.19+ kernel (SERVER-121912).
+        image: mongo:8.2
         ports:
           - 27017:27017
         options: >-
