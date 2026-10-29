@@ -4,6 +4,7 @@ const { randomUUID } = require("node:crypto");
 const Spot = require("../models/Spot");
 const Vehicle = require("../models/Vehicle");
 const Transaction = require("../models/Transaction");
+const { writeAuditEntry } = require("./auditService");
 
 const ENTRY_GATES = new Set(["Entry-1", "Entry-2"]);
 
@@ -67,6 +68,9 @@ async function allocateSpot({ plateNumber, vehicleType, gateId, operatorId }) {
     throw error;
   }
 
+  const ticketId = `TKT-${entryTimestamp.toISOString().replace(/[-:.TZ]/g, "")}-${randomUUID().slice(0, 8).toUpperCase()}`;
+  let transaction;
+
   try {
     await Vehicle.findOneAndUpdate(
       { plateNumber: normalizedPlate },
@@ -82,10 +86,7 @@ async function allocateSpot({ plateNumber, vehicleType, gateId, operatorId }) {
       },
     );
 
-    // The timestamp is server-generated and cannot be supplied by the client.
-    const ticketId = `TKT-${entryTimestamp.toISOString().replace(/[-:.TZ]/g, "")}-${randomUUID().slice(0, 8).toUpperCase()}`;
-
-    const transaction = await Transaction.create({
+    transaction = await Transaction.create({
       ticketId,
       plateNumber: normalizedPlate,
       vehicleType,
@@ -95,21 +96,6 @@ async function allocateSpot({ plateNumber, vehicleType, gateId, operatorId }) {
       entryTimestamp,
       status: "active",
     });
-
-    return {
-      ticketId,
-      transactionId: transaction?._id,
-      spotId: String(spot._id),
-      spotNumber: spot.spotNumber,
-      zone: spot.zone || vehicleType,
-      entryTimestamp,
-      qrPayload: JSON.stringify({
-        ticketId,
-        plateNumber: normalizedPlate,
-        vehicleType,
-        spotId: String(spot._id),
-      }),
-    };
   } catch (error) {
     // Release the claim if creating the vehicle or transaction fails. A unique
     // partial index on active transactions turns a concurrent duplicate entry
@@ -118,6 +104,35 @@ async function allocateSpot({ plateNumber, vehicleType, gateId, operatorId }) {
     if (error && error.code === 11000) throw alreadyParkedError();
     throw error;
   }
+
+  await writeAuditEntry({
+    action: "VEHICLE_ENTRY",
+    actorId: operatorId,
+    actorRole: "operator",
+    details: {
+      transactionId: String(transaction._id),
+      ticketId,
+      plateNumber: normalizedPlate,
+      vehicleType,
+      spotId: String(spot._id),
+      gateId,
+    },
+  });
+
+  return {
+    ticketId,
+    transactionId: transaction?._id,
+    spotId: String(spot._id),
+    spotNumber: spot.spotNumber,
+    zone: spot.zone || vehicleType,
+    entryTimestamp,
+    qrPayload: JSON.stringify({
+      ticketId,
+      plateNumber: normalizedPlate,
+      vehicleType,
+      spotId: String(spot._id),
+    }),
+  };
 }
 
 module.exports = { allocateSpot };

@@ -121,6 +121,7 @@ describe("S3-T3 — Socket.io server event contracts (SAD 4.3.8)", () => {
     );
     try {
       const reserved = waitFor(socket, "spot:update");
+      const refreshedLot = waitFor(socket, "lot:snapshot");
       const entry = await request(app)
         .post("/api/entry/vehicles")
         .set(
@@ -134,6 +135,14 @@ describe("S3-T3 — Socket.io server event contracts (SAD 4.3.8)", () => {
         spotId: entry.body.spotId,
         status: "reserved",
       });
+      await expect(refreshedLot).resolves.toEqual(
+        expect.objectContaining({
+          spots: expect.arrayContaining([
+            expect.objectContaining({ id: entry.body.spotId, status: "reserved" }),
+          ]),
+          occupancy: expect.objectContaining({ occupied: 1, totalSpots: 2 }),
+        }),
+      );
 
       const freed = waitFor(socket, "spot:update");
       const receipt = await request(app)
@@ -190,6 +199,8 @@ describe("S3-T3 — Socket.io server event contracts (SAD 4.3.8)", () => {
         .expect(200);
       await expect(alert).resolves.toEqual({
         vehicleId: notice.body.vehicleId,
+        ticketId: entry.body.ticketId,
+        plateNumber: "KA02CD5678",
         gateId: "Exit-1",
         duration: expect.any(Number),
       });
