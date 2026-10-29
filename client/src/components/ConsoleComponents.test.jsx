@@ -76,6 +76,23 @@ describe("ExitConsole", () => {
     expect(await screen.findByText(/lost ticket|penalty applied/i)).toBeInTheDocument();
   });
 
+  test("notifies the admin about an overstay from the found vehicle", async () => {
+    const user = userEvent.setup();
+    const api = {
+      lookupTicket: jest.fn().mockResolvedValue({ ticketId: "TKT-OVER", plateNumber: "KA03OV1234", vehicleType: "4W" }),
+      notifyOverstay: jest.fn().mockResolvedValue({ notificationId: "notice-1" }),
+    };
+    render(<ExitConsole gateId="Exit-1" api={api} />);
+
+    await user.type(screen.getByLabelText(/ticket id/i), "TKT-OVER");
+    await user.click(screen.getByRole("button", { name: /look up ticket/i }));
+    await screen.findByText("KA03OV1234");
+    await user.click(screen.getByRole("button", { name: /notify admin of overstay/i }));
+
+    expect(api.notifyOverstay).toHaveBeenCalledWith({ vehicleId: "TKT-OVER", gateId: "Exit-1" });
+    expect(await screen.findByRole("status")).toHaveTextContent(/notification sent/i);
+  });
+
   test("shows lookup misses and prevents exit confirmation until a vehicle is found", async () => {
     const user = userEvent.setup();
     const api = { lookupTicket: jest.fn().mockRejectedValue({ status: 404, message: "Vehicle not found" }) };

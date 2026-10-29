@@ -86,11 +86,13 @@ describe("S3-T4 — real API transport", () => {
     ["lookupTicket", ["TKT 1/2"], "GET", "/api/exit/lookup/TKT%201%2F2"],
     ["searchPlate", ["KA01AB1234"], "GET", "/api/exit/search?plateNumber=KA01AB1234"],
     ["processExit", [{ ticketId: "T1", gateId: "Exit-1" }], "POST", "/api/exit/process"],
+    ["notifyOverstay", [{ vehicleId: "T1", gateId: "Exit-1" }], "POST", "/api/overstay/notify"],
     ["getOccupancy", [], "GET", "/api/admin/analytics/occupancy"],
     ["getRevenue", [], "GET", "/api/admin/analytics/revenue"],
     ["getTransactions", [{ plate: "KA01" }], "GET", "/api/admin/transactions?plate=KA01"],
     ["getTransactions", [], "GET", "/api/admin/transactions"],
     ["getAuditLog", [], "GET", "/api/admin/audit-log"],
+    ["forceRelease", ["ticket 1/2"], "POST", "/api/admin/vehicles/ticket%201%2F2/force-release"],
   ])("%s calls %s %s", async (method, args, httpMethod, url) => {
     const { api, fetchImpl } = setup();
     await api[method](...args);

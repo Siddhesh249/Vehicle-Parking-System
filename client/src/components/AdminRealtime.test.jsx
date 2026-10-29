@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import AdminConsole from "./AdminConsole.jsx";
 
 const occupancy = (totalPct) => ({
@@ -64,5 +64,35 @@ describe("S3-T4 — admin panels refresh from real API responses", () => {
 
     unmount();
     expect(source.unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  test("shows an overstay alert and force-releases it from the admin dashboard", async () => {
+    const { api, realtime, source } = setup();
+    api.forceRelease = jest
+      .fn()
+      .mockResolvedValue({ spotId: "4W-01", penaltyApplied: true });
+    render(<AdminConsole api={api} realtime={realtime} />);
+    await screen.findByText("25%");
+
+    act(() =>
+      source.handlers.onOverstay({
+        vehicleId: "vehicle-1",
+        ticketId: "TKT-1",
+        plateNumber: "KA01AB1234",
+        gateId: "Exit-1",
+        duration: 5400,
+      }),
+    );
+
+    expect(await screen.findByText("KA01AB1234")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /force release/i }));
+
+    await waitFor(() => expect(api.forceRelease).toHaveBeenCalledWith("vehicle-1"));
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: /force release/i }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(screen.getByText(/no overstay alerts/i)).toBeInTheDocument();
   });
 });

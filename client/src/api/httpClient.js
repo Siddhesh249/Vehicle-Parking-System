@@ -67,7 +67,11 @@ export function createHttpApi({
 
   return {
     login: ({ username, password }) =>
-      request("/auth/login", { method: "POST", body: { username, password }, auth: false }),
+      request("/auth/login", {
+        method: "POST",
+        body: { username, password },
+        auth: false,
+      }),
 
     getLotStatus: () => request("/lot/status"),
     createEntry: (entry) => request("/entry/vehicles", { method: "POST", body: entry }),
@@ -78,11 +82,17 @@ export function createHttpApi({
       return payload?.records ?? payload ?? [];
     },
     processExit: (exit) => request("/exit/process", { method: "POST", body: exit }),
+    notifyOverstay: ({ vehicleId, gateId }) =>
+      request("/overstay/notify", { method: "POST", body: { vehicleId, gateId } }),
 
     getOccupancy: () => request("/admin/analytics/occupancy"),
     getRevenue: () => request("/admin/analytics/revenue"),
     getTransactions: async ({ plate } = {}) =>
       asList(await request("/admin/transactions", { query: { plate } }), "records"),
     getAuditLog: async () => asList(await request("/admin/audit-log"), "entries"),
+    forceRelease: (vehicleId) =>
+      request(`/admin/vehicles/${encodeURIComponent(vehicleId)}/force-release`, {
+        method: "POST",
+      }),
   };
 }

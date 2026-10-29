@@ -4,6 +4,7 @@ import { getToken as getStoredToken } from "../api/session.js";
 const toSpots = (payload) =>
   (Array.isArray(payload) ? payload : (payload?.spots ?? [])).map((spot) => ({
     id: spot.id ?? spot.spotId,
+    ...(spot.spotNumber ? { spotNumber: spot.spotNumber } : {}),
     zone: spot.zone,
     status: spot.status,
   }));
