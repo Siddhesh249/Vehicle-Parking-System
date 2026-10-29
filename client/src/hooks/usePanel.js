@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 // Loads data for one panel: { status: "loading" | "ready" | "error", data, error }.
-// `fetcher` must be stable (wrap in useCallback). `retry` reloads this panel only.
+// `fetcher` must be stable (wrap in useCallback).
+// `retry` reloads with a loading state; `refresh` reloads quietly, keeping the old data on screen.
 export default function usePanel(fetcher) {
   const [state, setState] = useState({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
@@ -20,10 +21,11 @@ export default function usePanel(fetcher) {
     };
   }, [fetcher, attempt]);
 
-  const retry = () => {
+  const retry = useCallback(() => {
     setState({ status: "loading" });
     setAttempt((n) => n + 1);
-  };
+  }, []);
+  const refresh = useCallback(() => setAttempt((n) => n + 1), []);
 
-  return { ...state, retry };
+  return { ...state, retry, refresh };
 }

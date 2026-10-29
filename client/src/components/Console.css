@@ -67,3 +67,8 @@ th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--c-l
 .spot-id { font-weight: 700; }
 .spot-free { border-color: #1b7f3b; color: #14602c; background: #f1faf4; }
 .spot-reserved { border-color: var(--c-red); color: #7a1f1f; background: #fdf0f0; }
+
+.chart { margin: 14px 0 0; }
+.live-status { margin: 0 0 8px; }
+
+button.text-link { padding: 0; border: 0; background: none; font: inherit; cursor: pointer; }

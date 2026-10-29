@@ -1,6 +1,7 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import usePanel from "../hooks/usePanel.js";
 import { errorMessage, formatMoney, formatTimestamp } from "../utils/format.js";
+import { OccupancyChart, RevenueChart } from "./Charts.jsx";
 import "./Console.css";
 
 // Wraps one panel: loading text, a recoverable error, or the loaded content.
@@ -25,7 +26,7 @@ function Panel({ title, state, children }) {
 const cell = (value) => (value === undefined || value === null || value === "" ? "—" : value);
 
 // Admin dashboard panels against the mocked SAD 4.3.5 / 4.3.6 responses (VPS-F-050..054, VPS-F-060).
-export default function AdminConsole({ api }) {
+export default function AdminConsole({ api, realtime }) {
   const [plateInput, setPlateInput] = useState("");
   const [plateFilter, setPlateFilter] = useState("");
 
@@ -42,6 +43,32 @@ export default function AdminConsole({ api }) {
   const transactions = usePanel(fetchTransactions);
   const audit = usePanel(fetchAudit);
 
+  // Live refresh: any spot change can alter occupancy, revenue, transactions and the audit log.
+  // Debounced so a burst of updates causes one reload (the refresh functions are stable).
+  const refreshOccupancy = occupancy.refresh;
+  const refreshRevenue = revenue.refresh;
+  const refreshTransactions = transactions.refresh;
+  const refreshAudit = audit.refresh;
+  useEffect(() => {
+    if (!realtime) return undefined;
+    let timer;
+    const unsubscribe = realtime.subscribe({
+      onUpdate: () => {
+        clearTimeout(timer);
+        timer = setTimeout(() => {
+          refreshOccupancy();
+          refreshRevenue();
+          refreshTransactions();
+          refreshAudit();
+        }, 400);
+      },
+    });
+    return () => {
+      clearTimeout(timer);
+      unsubscribe();
+    };
+  }, [realtime, refreshOccupancy, refreshRevenue, refreshTransactions, refreshAudit]);
+
   return (
     <div className="admin-grid">
       <Panel title="Occupancy" state={occupancy}>
@@ -56,6 +83,7 @@ export default function AdminConsole({ api }) {
                 </li>
               ))}
             </ul>
+            <OccupancyChart history={data.history} />
           </>
         )}
       </Panel>
@@ -69,6 +97,7 @@ export default function AdminConsole({ api }) {
                 <li key={zone}>{`${zone}: ${formatMoney(amount)}`}</li>
               ))}
             </ul>
+            <RevenueChart byDay={data.byDay} />
           </>
         )}
       </Panel>
