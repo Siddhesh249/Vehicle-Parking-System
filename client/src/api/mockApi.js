@@ -41,6 +41,21 @@ function calculateBaseFare(durationSeconds, vehicleType) {
   );
 }
 
+// Demo-only trend data so the admin charts have something to draw.
+function sampleHistory(currentPct, nowMs) {
+  return [38, 44, 52, 61, 58, 66, 72, currentPct].map((totalPct, i, all) => ({
+    timestamp: new Date(nowMs - (all.length - 1 - i) * HOUR_MS).toISOString(),
+    totalPct,
+  }));
+}
+
+function sampleRevenueByDay(todayTotal, nowMs) {
+  return [420, 560, 380, 610, 530, 700, todayTotal].map((total, i, all) => ({
+    date: new Date(nowMs - (all.length - 1 - i) * 24 * HOUR_MS).toISOString().slice(0, 10),
+    total,
+  }));
+}
+
 export function createMockApi({ delayMs = 150 } = {}) {
   const wait = () => new Promise((resolve) => setTimeout(resolve, delayMs));
   const now = () => Date.now();
@@ -61,6 +76,10 @@ export function createMockApi({ delayMs = 150 } = {}) {
   const audit = [];
   let ticketSeq = 0;
   let receiptSeq = 0;
+
+  // Same-tab stand-in for the Socket.io spot:update broadcast.
+  const listeners = new Set();
+  const emit = (spotId, status) => listeners.forEach((listener) => listener({ spotId, status }));
 
   const log = (action, actorRole = "operator") =>
     audit.unshift({ action, actorRole, createdAt: new Date(now()).toISOString() });
@@ -148,6 +167,7 @@ export function createMockApi({ delayMs = 150 } = {}) {
       });
       if (!record) return fail(409, `No ${vehicleType} spots available`, "LOT_FULL");
       log("VEHICLE_ENTRY");
+      emit(record.spotId, "reserved");
       return { ticketId, spotId: record.spotId, zone: record.zone, qrPayload: ticketId };
     },
 
@@ -184,6 +204,7 @@ export function createMockApi({ delayMs = 150 } = {}) {
       record.exitTimestamp = new Date(now()).toISOString();
       spots.find((s) => s.id === record.spotId).status = "free";
       log("VEHICLE_EXIT");
+      emit(record.spotId, "free");
       return {
         fare,
         durationSeconds,
@@ -195,7 +216,8 @@ export function createMockApi({ delayMs = 150 } = {}) {
 
     async getOccupancy() {
       await wait();
-      return lotStatus();
+      const status = lotStatus();
+      return { ...status, history: sampleHistory(status.totalPct, now()) };
     },
 
     async getRevenue() {
@@ -203,7 +225,8 @@ export function createMockApi({ delayMs = 150 } = {}) {
       const byZone = { "2W": 0, "4W": 0 };
       for (const r of records)
         if (r.status === "completed") byZone[r.zone] = round2(byZone[r.zone] + r.fare);
-      return { total: round2(byZone["2W"] + byZone["4W"]), byDay: [], byZone };
+      const total = round2(byZone["2W"] + byZone["4W"]);
+      return { total, byDay: sampleRevenueByDay(total, now()), byZone };
     },
 
     async getTransactions({ plate } = {}) {
@@ -225,6 +248,19 @@ export function createMockApi({ delayMs = 150 } = {}) {
     async getAuditLog() {
       await wait();
       return { entries: audit.map((e) => ({ ...e })) };
+    },
+
+    // Same interface as the Socket.io connection: connect(handlers) returns a disconnect function.
+    realtime: {
+      connect({ onSnapshot, onUpdate, onStatus } = {}) {
+        const listener = ({ spotId, status }) => onUpdate?.({ spotId, status });
+        listeners.add(listener);
+        onStatus?.("connected");
+        onSnapshot?.(spots.map(({ id, zone, status }) => ({ id, zone, status })));
+        return () => {
+          listeners.delete(listener);
+        };
+      },
     },
   };
 }
