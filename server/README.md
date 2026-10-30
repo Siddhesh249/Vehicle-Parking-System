@@ -40,6 +40,13 @@ const fare = calculateFare(
 console.log(fare); // 30
 ```
 
+## Seeding a local demo
+
+Run `npm run seed` once against the configured database. It creates the four fixed gate
+accounts (`entry1`, `entry2`, `exit1`, `exit2`), the `admin` account, and the initial
+6 two-wheeler / 10 four-wheeler spots. The local password is `password123` unless
+`SEED_PASSWORD` is set; the script is idempotent.
+
 ## Tests
 
 From the repository root, install dependencies and run the server and client suites with `npm test`. To run just the server suite:

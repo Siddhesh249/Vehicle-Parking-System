@@ -1,6 +1,12 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import usePanel from "../hooks/usePanel.js";
-import { errorMessage, formatMoney, formatTimestamp } from "../utils/format.js";
+import {
+  errorMessage,
+  formatDuration,
+  formatMoney,
+  formatTimestamp,
+} from "../utils/format.js";
+import { OccupancyChart, RevenueChart } from "./Charts.jsx";
 import "./Console.css";
 
 // Wraps one panel: loading text, a recoverable error, or the loaded content.
@@ -11,7 +17,9 @@ function Panel({ title, state, children }) {
       {state.status === "loading" && <p role="status">Loading {title.toLowerCase()}…</p>}
       {state.status === "error" && (
         <div role="alert" className="console-error">
-          <span>{errorMessage(state.error, `Could not load ${title.toLowerCase()}.`)}</span>{" "}
+          <span>
+            {errorMessage(state.error, `Could not load ${title.toLowerCase()}.`)}
+          </span>{" "}
           <button type="button" className="link-button" onClick={state.retry}>
             Retry
           </button>
@@ -22,12 +30,16 @@ function Panel({ title, state, children }) {
   );
 }
 
-const cell = (value) => (value === undefined || value === null || value === "" ? "—" : value);
+const cell = (value) =>
+  value === undefined || value === null || value === "" ? "—" : value;
 
-// Admin dashboard panels against the mocked SAD 4.3.5 / 4.3.6 responses (VPS-F-050..054, VPS-F-060).
-export default function AdminConsole({ api }) {
+// Admin dashboard panels against the SAD 4.3.5 / 4.3.6 responses (VPS-F-041..054, VPS-F-060).
+export default function AdminConsole({ api, realtime }) {
   const [plateInput, setPlateInput] = useState("");
   const [plateFilter, setPlateFilter] = useState("");
+  const [alerts, setAlerts] = useState([]);
+  const [releasing, setReleasing] = useState(null);
+  const [alertError, setAlertError] = useState("");
 
   const fetchOccupancy = useCallback(() => api.getOccupancy(), [api]);
   const fetchRevenue = useCallback(() => api.getRevenue(), [api]);
@@ -42,8 +54,97 @@ export default function AdminConsole({ api }) {
   const transactions = usePanel(fetchTransactions);
   const audit = usePanel(fetchAudit);
 
+  // Live refresh: any spot change can alter occupancy, revenue, transactions and the audit log.
+  // Debounced so a burst of updates causes one reload (the refresh functions are stable).
+  const refreshOccupancy = occupancy.refresh;
+  const refreshRevenue = revenue.refresh;
+  const refreshTransactions = transactions.refresh;
+  const refreshAudit = audit.refresh;
+  const refreshAll = useCallback(() => {
+    refreshOccupancy();
+    refreshRevenue();
+    refreshTransactions();
+    refreshAudit();
+  }, [refreshOccupancy, refreshRevenue, refreshTransactions, refreshAudit]);
+
+  useEffect(() => {
+    if (!realtime) return undefined;
+    let timer;
+    const refreshSoon = () => {
+      clearTimeout(timer);
+      timer = setTimeout(refreshAll, 400);
+    };
+    const unsubscribe = realtime.subscribe({
+      onUpdate: refreshSoon,
+      onOverstay: (alert) => {
+        if (!alert?.vehicleId) return;
+        setAlerts((current) =>
+          current.some(({ vehicleId }) => vehicleId === alert.vehicleId)
+            ? current
+            : [alert, ...current],
+        );
+      },
+    });
+    return () => {
+      clearTimeout(timer);
+      unsubscribe();
+    };
+  }, [realtime, refreshAll]);
+
+  async function releaseOverstay(alert) {
+    if (releasing || typeof api.forceRelease !== "function") return;
+    setAlertError("");
+    setReleasing(alert.vehicleId);
+    try {
+      await api.forceRelease(alert.vehicleId);
+      setAlerts((current) =>
+        current.filter(({ vehicleId }) => vehicleId !== alert.vehicleId),
+      );
+      refreshAll();
+    } catch (err) {
+      setAlertError(errorMessage(err, "Could not force-release that vehicle."));
+    } finally {
+      setReleasing(null);
+    }
+  }
+
   return (
     <div className="admin-grid">
+      <section className="console-panel" aria-labelledby="overstay-alerts-title">
+        <h3 id="overstay-alerts-title">Overstay alerts</h3>
+        {alertError && (
+          <p role="alert" className="console-error">
+            {alertError}
+          </p>
+        )}
+        {alerts.length === 0 ? (
+          <p className="field-hint">No overstay alerts.</p>
+        ) : (
+          <ul className="alert-list">
+            {alerts.map((alert) => (
+              <li key={alert.vehicleId}>
+                <div>
+                  <strong className="mono">
+                    {alert.plateNumber ?? alert.ticketId ?? alert.vehicleId}
+                  </strong>
+                  <span className="field-hint">
+                    {`${alert.gateId ?? "Gate"} · parked ${formatDuration(alert.duration ?? 0)}`}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className="primary-button"
+                  onClick={() => releaseOverstay(alert)}
+                  disabled={releasing === alert.vehicleId}
+                >
+                  {releasing === alert.vehicleId ? "Releasing…" : "Force release"}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
       <Panel title="Occupancy" state={occupancy}>
         {(data) => (
           <>
@@ -52,10 +153,16 @@ export default function AdminConsole({ api }) {
               {Object.entries(data.byZone ?? {}).map(([zone, { occupied, total }]) => (
                 <li key={zone}>
                   <span>{`${zone}: ${occupied} of ${total} occupied`}</span>
-                  <meter min={0} max={total} value={occupied} aria-label={`${zone} zone occupancy`} />
+                  <meter
+                    min={0}
+                    max={total}
+                    value={occupied}
+                    aria-label={`${zone} zone occupancy`}
+                  />
                 </li>
               ))}
             </ul>
+            <OccupancyChart history={data.history} />
           </>
         )}
       </Panel>
@@ -69,6 +176,7 @@ export default function AdminConsole({ api }) {
                 <li key={zone}>{`${zone}: ${formatMoney(amount)}`}</li>
               ))}
             </ul>
+            <RevenueChart byDay={data.byDay} />
           </>
         )}
       </Panel>
@@ -85,7 +193,11 @@ export default function AdminConsole({ api }) {
             >
               <label>
                 Filter by plate
-                <input type="text" value={plateInput} onChange={(e) => setPlateInput(e.target.value)} />
+                <input
+                  type="text"
+                  value={plateInput}
+                  onChange={(e) => setPlateInput(e.target.value)}
+                />
               </label>
               <button type="submit" className="secondary-button">
                 Filter

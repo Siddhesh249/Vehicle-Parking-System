@@ -51,6 +51,7 @@
 
 .match-list { margin: 16px 0 0; padding: 12px 16px; border: 1px solid var(--c-line); border-radius: 8px; }
 .match-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 6px 0; }
+.match-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; }
 
 .admin-grid { display: grid; gap: 0 16px; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); }
 .big-number { margin: 0 0 8px; font-size: 2rem; font-weight: 700; }
@@ -58,6 +59,9 @@
 .zone-list li { display: flex; flex-direction: column; gap: 4px; }
 .zone-list meter { width: 100%; }
 .table-wrap { overflow-x: auto; }
+.alert-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 12px; }
+.alert-list li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border-left: 4px solid var(--c-red); background: #fdf0f0; }
+.alert-list li > div { display: flex; flex-direction: column; gap: 3px; }
 table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--c-line); }
 
@@ -67,3 +71,8 @@ th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--c-l
 .spot-id { font-weight: 700; }
 .spot-free { border-color: #1b7f3b; color: #14602c; background: #f1faf4; }
 .spot-reserved { border-color: var(--c-red); color: #7a1f1f; background: #fdf0f0; }
+
+.chart { margin: 14px 0 0; }
+.live-status { margin: 0 0 8px; }
+
+button.text-link { padding: 0; border: 0; background: none; font: inherit; cursor: pointer; }

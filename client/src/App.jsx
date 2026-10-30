@@ -1,8 +1,10 @@
 import "./App.css";
-import { mockApi } from "./api/mockApi.js";
+import { api, apiMode, realtime } from "./api/index.js";
+import { clearSession, getSession, saveSession } from "./api/session.js";
 import AdminConsole from "./components/AdminConsole.jsx";
 import EntryConsole from "./components/EntryConsole.jsx";
 import ExitConsole from "./components/ExitConsole.jsx";
+import LoginForm from "./components/LoginForm.jsx";
 import LotMap from "./components/LotMap.jsx";
 
 const consoles = [
@@ -13,16 +15,44 @@ const consoles = [
   { path: "/admin", label: "Admin Dashboard", role: "Admin" },
 ];
 
-// Renders the working console for a route. Uses the mock API until the real client lands in Sprint 3.
+// "mock" (default) or "real" — set VITE_API_MODE=real to talk to the backend (see client/README.md).
+const isReal = apiMode === "real";
+
+// Where each account lands after signing in: admin -> /admin, "Entry-1" -> /entry-1, ...
+const homePathFor = ({ role, gateId }) =>
+  role === "admin" ? "/admin" : gateId ? `/${gateId.toLowerCase()}` : "/";
+
+function handleSignedIn(session) {
+  saveSession(session);
+  window.location.assign(homePathFor(session));
+}
+
+function signOut() {
+  clearSession();
+  window.location.assign("/login");
+}
+
 function ConsoleView({ gateId, role }) {
-  if (role === "Admin") return <AdminConsole api={mockApi} />;
-  if (gateId.startsWith("Entry")) return <EntryConsole gateId={gateId} api={mockApi} />;
-  return <ExitConsole gateId={gateId} api={mockApi} />;
+  if (role === "Admin") return <AdminConsole api={api} realtime={realtime} />;
+  if (gateId.startsWith("Entry")) return <EntryConsole gateId={gateId} api={api} />;
+  return <ExitConsole gateId={gateId} api={api} />;
 }
 
 function App() {
   const currentPath = window.location.pathname.replace(/\/$/, "") || "/";
   const currentConsole = consoles.find(({ path }) => path === currentPath);
+  const isLogin = currentPath === "/login";
+  const session = isReal ? getSession() : null;
+  // The server rejects cross-gate requests anyway; this keeps the visible
+  // console from pretending the session has access it does not have.
+  const canUseConsole =
+    !isReal ||
+    Boolean(
+      session &&
+      (currentConsole?.role === "Admin"
+        ? session.role === "admin"
+        : session.gateId && session.gateId === currentConsole?.gateId),
+    );
 
   return (
     <main className="parking-app">
@@ -33,18 +63,35 @@ function App() {
           </span>
           <span>Parkwise</span>
         </a>
-        <span className="environment-label">Parking operations</span>
+        <span className="environment-label">
+          {session ? (
+            <>
+              Signed in as {session.gateId ?? session.role} ·{" "}
+              <button type="button" className="text-link" onClick={signOut}>
+                Sign out
+              </button>
+            </>
+          ) : (
+            "Parking operations"
+          )}
+        </span>
       </header>
 
       <section className="welcome-panel" aria-labelledby="page-title">
         <p className="eyebrow">VEHICLE PARKING SYSTEM</p>
         <h1 id="page-title">
-          {currentConsole ? currentConsole.label : "Choose a console"}
+          {currentConsole
+            ? currentConsole.label
+            : isLogin
+              ? "Sign in"
+              : "Choose a console"}
         </h1>
         <p className="intro">
           {currentConsole
             ? `${currentConsole.role} workspace. Sign in to continue to your assigned gate.`
-            : "Select a gate console or the administrator workspace to get started."}
+            : isLogin
+              ? "Use your gate or administrator account."
+              : "Select a gate console or the administrator workspace to get started."}
         </p>
       </section>
 
@@ -56,15 +103,48 @@ function App() {
             </div>
             <div>
               <h2 id="console-title">{currentConsole.role} console</h2>
-              <p>Running on mock data until the backend is connected.</p>
+              <p>
+                {isReal
+                  ? "Connected to the live backend."
+                  : "Running on mock data until the backend is connected."}
+              </p>
             </div>
             <a className="text-link" href="/">
               All consoles
             </a>
           </section>
-          <ConsoleView gateId={currentConsole.gateId} role={currentConsole.role} />
-          <LotMap api={mockApi} />
+          {isReal && !session ? (
+            <section className="console-panel">
+              <p>
+                Sign in to use this console. <a href="/login">Go to sign in</a>
+              </p>
+            </section>
+          ) : isReal && !canUseConsole ? (
+            <section className="console-panel">
+              <p role="alert">
+                This account is signed in as {session.gateId ?? session.role}, not{" "}
+                {currentConsole.gateId ?? currentConsole.role}.{" "}
+                <a href={homePathFor(session)}>Go to your console</a>
+              </p>
+            </section>
+          ) : (
+            <>
+              <ConsoleView gateId={currentConsole.gateId} role={currentConsole.role} />
+              <LotMap api={api} realtime={realtime} />
+            </>
+          )}
         </>
+      ) : isLogin ? (
+        isReal ? (
+          <LoginForm api={api} onSuccess={handleSignedIn} />
+        ) : (
+          <section className="console-panel">
+            <p>
+              Sign-in isn&apos;t needed while running on mock data.{" "}
+              <a href="/">All consoles</a>
+            </p>
+          </section>
+        )
       ) : (
         <nav className="console-grid" aria-label="Parking system consoles">
           {consoles.map(({ path, label, role }) => (

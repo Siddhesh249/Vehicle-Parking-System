@@ -15,6 +15,7 @@ const auditLogSchema = new mongoose.Schema(
         "ACCOUNT_LOCKED",
         "SPOT_FORCE_RELEASE",
         "FARE_CONFIG_UPDATED",
+        "SPOT_CONFIG_UPDATED",
         "OVERSTAY_FLAGGED",
       ],
     },

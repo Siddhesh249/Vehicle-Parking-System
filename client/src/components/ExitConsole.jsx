@@ -19,9 +19,11 @@ export default function ExitConsole({ gateId, api }) {
   const [matches, setMatches] = useState([]);
   const [selected, setSelected] = useState(0);
   const [receipt, setReceipt] = useState(null);
+  const [notice, setNotice] = useState("");
 
   function startSearch() {
     setError("");
+    setNotice("");
     setReceipt(null);
     setMatches([]);
     setSelected(0);
@@ -93,6 +95,25 @@ export default function ExitConsole({ gateId, api }) {
     }
   }
 
+  async function notifyOverstay() {
+    if (busy || !matches.length || typeof api.notifyOverstay !== "function") return;
+    const record = matches[selected];
+    setError("");
+    setNotice("");
+    setBusy(true);
+    try {
+      await api.notifyOverstay({
+        vehicleId: record.ticketId ?? record.plateNumber,
+        gateId,
+      });
+      setNotice("Overstay notification sent to the admin.");
+    } catch (err) {
+      setError(errorMessage(err, "Could not notify the admin."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const breakdown = receipt ? describeBreakdown(receipt.breakdown) : "";
   const fareText = receipt
     ? breakdown
@@ -134,7 +155,9 @@ export default function ExitConsole({ gateId, api }) {
           <button type="submit" className="secondary-button" disabled={busy}>
             Search by plate
           </button>
-          <p className="field-hint">For drivers without a ticket. A penalty fee is added to the fare.</p>
+          <p className="field-hint">
+            For drivers without a ticket. A penalty fee is added to the fare.
+          </p>
         </form>
       </div>
 
@@ -158,13 +181,36 @@ export default function ExitConsole({ gateId, api }) {
               {record.ticketId && <span className="mono">{record.ticketId}</span>}
               <span className="mono">{record.plateNumber}</span>
               <span>{record.vehicleType}</span>
-              {record.entryTimestamp && <span>{formatTimestamp(record.entryTimestamp)}</span>}
+              {record.entryTimestamp && (
+                <span>{formatTimestamp(record.entryTimestamp)}</span>
+              )}
             </label>
           ))}
-          <button type="button" className="primary-button" onClick={confirmExit} disabled={busy}>
-            Confirm exit
-          </button>
+          <div className="match-actions">
+            <button
+              type="button"
+              className="primary-button"
+              onClick={confirmExit}
+              disabled={busy}
+            >
+              Confirm exit
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={notifyOverstay}
+              disabled={busy || typeof api.notifyOverstay !== "function"}
+            >
+              Notify admin of overstay
+            </button>
+          </div>
         </fieldset>
+      )}
+
+      {notice && (
+        <p role="status" className="field-hint">
+          {notice}
+        </p>
       )}
 
       {receipt && (

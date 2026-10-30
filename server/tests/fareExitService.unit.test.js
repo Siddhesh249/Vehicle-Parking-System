@@ -8,11 +8,13 @@ jest.mock("../models/Transaction", () => ({
 jest.mock("../models/Spot", () => ({ findOneAndUpdate: jest.fn() }));
 jest.mock("../services/fareService", () => ({ calculateFareDetails: jest.fn() }));
 jest.mock("../services/fareConfigService", () => ({ getFareConfig: jest.fn() }));
+jest.mock("../services/auditService", () => ({ writeAuditEntry: jest.fn() }));
 
 const Transaction = require("../models/Transaction");
 const Spot = require("../models/Spot");
 const { calculateFareDetails } = require("../services/fareService");
 const { getFareConfig } = require("../services/fareConfigService");
+const { writeAuditEntry } = require("../services/auditService");
 const {
   lookupByTicket,
   searchByPlate,
@@ -40,6 +42,7 @@ describe("Fare/Exit Service", () => {
     jest.clearAllMocks();
     Spot.findOneAndUpdate.mockResolvedValue({ _id: "spot-1", status: "free" });
     getFareConfig.mockResolvedValue(undefined);
+    writeAuditEntry.mockResolvedValue({});
   });
 
   test("looks up an active transaction by ticket ID", async () => {
@@ -93,12 +96,12 @@ describe("Fare/Exit Service", () => {
       expect.objectContaining({
         $set: expect.objectContaining({ status: "completed", fare: 30 }),
       }),
-      expect.objectContaining({ new: true }),
+      expect.objectContaining({ returnDocument: "after" }),
     );
     expect(Spot.findOneAndUpdate).toHaveBeenCalledWith(
       { _id: "spot-1", status: "reserved" },
       { $set: { status: "free", currentTransactionId: null } },
-      { new: true },
+      { returnDocument: "after" },
     );
     expect(receipt).toEqual(
       expect.objectContaining({
@@ -107,6 +110,14 @@ describe("Fare/Exit Service", () => {
         penaltyApplied: false,
         breakdown: { baseFare: 30 },
         receiptId: expect.any(String),
+      }),
+    );
+    expect(writeAuditEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "VEHICLE_EXIT",
+        actorId: "exit-op",
+        actorRole: "operator",
+        details: expect.objectContaining({ gateId: "Exit-1", fare: 30 }),
       }),
     );
   });

@@ -76,7 +76,7 @@ export default function EntryConsole({ gateId, api }) {
           <p className="ticket-id">{ticket.ticketId}</p>
           <dl className="detail-list">
             <dt>Spot</dt>
-            <dd>{ticket.spotId}</dd>
+            <dd>{ticket.spotNumber ?? ticket.spotId}</dd>
             <dt>Zone</dt>
             <dd>{`${ticket.zone} zone`}</dd>
           </dl>
