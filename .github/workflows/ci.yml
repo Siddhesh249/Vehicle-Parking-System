@@ -1,4 +1,4 @@
-name: CI — Unit & Integration Tests
+name: CI — Unit, Integration & Load Tests
 
 on:
   push:
@@ -53,6 +53,81 @@ jobs:
 
       - name: Check formatting
         run: npm run format:check
+
+  loadtest:
+    name: S4-T1 — concurrent allocation load test (k6)
+    runs-on: ubuntu-latest
+
+    services:
+      mongodb:
+        # Keep this aligned with the server-tests job: mongo:8 is incompatible
+        # with the runners' 6.19+ kernel (SERVER-121912).
+        image: mongo:8.2
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 })'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      MONGO_URI: mongodb://127.0.0.1:27017/vehicle_parking_loadtest
+      PORT: "5000"
+      JWT_SECRET: ci-loadtest-only-secret
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: server/package-lock.json
+
+      - name: Install server dependencies
+        working-directory: server
+        run: npm ci
+
+      - name: Seed load-test data
+        working-directory: server
+        run: npm run seed
+
+      - name: Start backend
+        working-directory: server
+        run: |
+          node index.js > /tmp/vps-server.log 2>&1 &
+          echo $! > /tmp/vps-server.pid
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:5000/api/health > /dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/vps-server.log
+          exit 1
+
+      - name: Set up k6
+        uses: grafana/setup-k6-action@v1
+
+      - name: Run S4-T1 concurrent allocation load test
+        env:
+          BASE_URL: http://127.0.0.1:5000
+          VUS: "50"
+        run: k6 run loadtest/entry-concurrency.js
+
+      - name: Show backend log on failure
+        if: failure()
+        run: cat /tmp/vps-server.log || true
+
+      - name: Stop backend
+        if: always()
+        run: |
+          if [ -f /tmp/vps-server.pid ]; then
+            kill "$(cat /tmp/vps-server.pid)" || true
+          fi
 
   client-tests:
     name: Client — unit tests
