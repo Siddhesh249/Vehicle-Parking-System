@@ -1,6 +1,7 @@
 "use strict";
 
 const FareTierConfig = require("../models/FareTierConfig");
+const { getFareOverride } = require("./simulationService");
 
 /**
  * Return the persisted rate table for a vehicle type, if an administrator has
@@ -9,6 +10,9 @@ const FareTierConfig = require("../models/FareTierConfig");
  * seeded.
  */
 async function getFareConfig(vehicleType) {
+  const simulationOverride = getFareOverride(vehicleType);
+  if (simulationOverride) return simulationOverride;
+
   const configured = await FareTierConfig.findOne({ vehicleType }).lean();
   if (!configured) return undefined;
 
