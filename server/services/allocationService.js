@@ -142,11 +142,12 @@ async function allocateSpotInOrder({ plateNumber, vehicleType, gateId, operatorI
  */
 function allocateSpot(input = {}) {
   const receivedAt = new Date();
-  const queueKey = input.vehicleType;
+  const allocationInput = input && typeof input === "object" ? input : {};
+  const queueKey = allocationInput.vehicleType;
   const previous = allocationQueues.get(queueKey) || Promise.resolve();
   const current = previous
     .catch(() => {})
-    .then(() => allocateSpotInOrder(input, receivedAt));
+    .then(() => allocateSpotInOrder(allocationInput, receivedAt));
   const tail = current.then(() => undefined, () => undefined);
 
   allocationQueues.set(queueKey, tail);
