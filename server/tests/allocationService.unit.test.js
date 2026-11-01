@@ -126,6 +126,32 @@ describe("allocateSpot", () => {
     expect(Spot.findOneAndUpdate).toHaveBeenCalledTimes(2);
   });
 
+
+  test("does not let a later same-zone request claim a spot before the earlier request completes", async () => {
+    let finishFirstTransaction;
+    Spot.findOneAndUpdate
+      .mockResolvedValueOnce({ _id: "spot-first", zone: "4W" })
+      .mockResolvedValueOnce({ _id: "spot-second", zone: "4W" });
+    Vehicle.findOneAndUpdate.mockResolvedValue({ plateNumber: "TEST", vehicleType: "4W" });
+    Transaction.create
+      .mockImplementationOnce(() => new Promise((resolve) => {
+        finishFirstTransaction = () => resolve({ _id: "tx-first", ticketId: "first" });
+      }))
+      .mockResolvedValueOnce({ _id: "tx-second", ticketId: "second" });
+
+    const first = allocateSpot(input({ plateNumber: "KA01FIRST" }));
+    const second = allocateSpot(input({ plateNumber: "KA02SECOND" }));
+
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(Spot.findOneAndUpdate).toHaveBeenCalledTimes(1);
+    finishFirstTransaction();
+
+    const [firstResult, secondResult] = await Promise.all([first, second]);
+    expect(firstResult.spotId).toBe("spot-first");
+    expect(secondResult.spotId).toBe("spot-second");
+    expect(Spot.findOneAndUpdate).toHaveBeenCalledTimes(2);
+  });
+
   test("uses a server-received timestamp instead of a client-supplied timestamp", async () => {
     const receivedAt = new Date("2026-10-23T12:00:00.000Z");
     jest.useFakeTimers().setSystemTime(receivedAt);
