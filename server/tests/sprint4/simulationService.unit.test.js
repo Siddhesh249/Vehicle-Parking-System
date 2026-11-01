@@ -7,6 +7,7 @@ jest.mock("../../services/allocationService", () => ({ allocateSpot: jest.fn() }
 
 describe("Sprint 4 T2 simulation backend", () => {
   afterEach(() => {
+    jest.useRealTimers();
     simulationService.stopSimulation();
     simulationService.clearFareOverrides();
     jest.clearAllMocks();
@@ -39,6 +40,25 @@ describe("Sprint 4 T2 simulation backend", () => {
     expect(simulationService.getSimulationState()).toEqual(expect.objectContaining({ running: true, ratePerMinute: 60 }));
     expect(simulationService.stopSimulation()).toEqual({ status: "stopped" });
     expect(simulationService.getSimulationState().running).toBe(false);
+  });
+
+
+  test("counts full-lot arrivals once instead of retrying missed arrivals", async () => {
+    jest.useFakeTimers();
+    const fullLot = Object.assign(new Error("lot full"), { code: "LOT_FULL" });
+    allocateSpot.mockRejectedValue(fullLot);
+
+    simulationService.startSimulation({ ratePerMinute: 60 });
+    await jest.advanceTimersByTimeAsync(1000);
+    expect(simulationService.getSimulationState()).toEqual(expect.objectContaining({
+      generatedArrivals: 1,
+      successfulAllocations: 0,
+      fullLotArrivals: 1,
+    }));
+
+    await jest.advanceTimersByTimeAsync(1000);
+    expect(allocateSpot).toHaveBeenCalledTimes(2);
+    expect(simulationService.getSimulationState().generatedArrivals).toBe(2);
   });
 
   test("rejects a rate above the supported maximum", () => {
@@ -78,7 +98,7 @@ describe("Sprint 4 T2 simulation backend", () => {
     expect(allocateSpot).toHaveBeenCalledWith(expect.objectContaining({
       vehicleType: expect.stringMatching(/^(2W|4W)$/),
       gateId: expect.stringMatching(/^Entry-[12]$/),
-      plateNumber: expect.stringMatching(/^SIM/),
+      plateNumber: expect.stringMatching(/^SIM[A-F0-9]{12}$/),
     }));
     jest.useRealTimers();
   });
