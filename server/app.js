@@ -18,6 +18,12 @@ const { updateFareTiers, updateSpotCount } = require("./services/adminConfigServ
 const { notifyOverstay, forceRelease } = require("./services/overstayService");
 const { requireRole } = require("./middleware/authMiddleware");
 const { verifyToken } = require("./utils/jwtUtils");
+const {
+  startSimulation,
+  stopSimulation,
+  getSimulationState,
+  setFareOverride,
+} = require("./services/simulationService");
 const Spot = require("./models/Spot");
 
 const app = express();
@@ -160,6 +166,44 @@ app.get("/api/lot/status", authenticateToken, async (req, res) => {
     return res.status(200).json(await buildLotSnapshot({ zone }));
   } catch (error) {
     return sendServiceError(res, error);
+  }
+});
+
+
+// Sprint 4 T2: developer-only simulation controls. Never expose in production.
+function requireDevelopmentMode(req, res, next) {
+  if (process.env.NODE_ENV === "production") {
+    return res.status(404).json({
+      error: { code: "NOT_FOUND", message: "Route not found" },
+    });
+  }
+  return next();
+}
+
+app.get("/api/dev/simulate/status", requireDevelopmentMode, (_req, res) => {
+  return res.status(200).json(getSimulationState());
+});
+
+app.post("/api/dev/simulate/start", requireDevelopmentMode, (req, res) => {
+  try {
+    return res.status(200).json(startSimulation({ ratePerMinute: req.body?.ratePerMinute }));
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
+
+app.post("/api/dev/simulate/stop", requireDevelopmentMode, (_req, res) => {
+  return res.status(200).json(stopSimulation());
+});
+
+app.put("/api/dev/simulate/fare-tiers", requireDevelopmentMode, (req, res) => {
+  try {
+    return res.status(200).json(setFareOverride(req.body || {}));
+  } catch (error) {
+    const status = error.statusCode || 400;
+    return res.status(status).json({
+      error: { code: error.code || "INVALID_FARE_OVERRIDE", message: error.message },
+    });
   }
 });
 
