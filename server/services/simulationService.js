@@ -12,8 +12,12 @@ const fareOverrides = new Map();
 let timer = null;
 let startedAt = null;
 let ratePerMinute = 0;
-let emittedArrivals = 0;
+let generatedArrivals = 0;
+let successfulAllocations = 0;
+let fullLotArrivals = 0;
 let lastError = null;
+let tickInProgress = false;
+let runId = 0;
 
 function arrivalsForWindow({ ratePerMinute: rate, elapsedMs } = {}) {
   if (typeof rate !== "number" || !Number.isFinite(rate) || rate < 0) {
@@ -30,15 +34,24 @@ function getSimulationState() {
     running: timer !== null,
     ratePerMinute,
     startedAt: startedAt ? new Date(startedAt).toISOString() : null,
-    emittedArrivals,
+    generatedArrivals,
+    successfulAllocations,
+    fullLotArrivals,
     lastError,
   };
 }
 
-async function generateArrival() {
+async function generateArrival(activeRunId) {
+  if (activeRunId !== runId) return;
+
+  // Keep synthetic plate numbers within the Vehicle schema's 16-character limit.
+  const plateNumber = `SIM${randomUUID().replace(/-/g, "").slice(0, 12).toUpperCase()}`;
   const vehicleType = Math.random() < 0.65 ? "2W" : "4W";
   const gateId = Math.random() < 0.5 ? "Entry-1" : "Entry-2";
-  const plateNumber = `SIM${Date.now().toString(36).toUpperCase()}${randomUUID().slice(0, 5).toUpperCase()}`;
+
+  // Count attempts, not only successful parking operations. A full lot must
+  // not cause the generator to retry the same missed arrivals indefinitely.
+  generatedArrivals += 1;
 
   try {
     await allocateSpot({
@@ -47,26 +60,34 @@ async function generateArrival() {
       gateId,
       operatorId: new Types.ObjectId().toString(),
     });
-    emittedArrivals += 1;
+    if (activeRunId === runId) successfulAllocations += 1;
     lastError = null;
   } catch (error) {
-    // A full lot is an expected simulation outcome, not a generator failure.
-    if (error.code !== "LOT_FULL") lastError = error.message;
+    if (activeRunId !== runId) return;
+    if (error.code === "LOT_FULL") {
+      fullLotArrivals += 1;
+    } else {
+      lastError = error.message || "Synthetic arrival failed";
+    }
   }
 }
 
-function scheduleTick() {
-  if (timer) clearInterval(timer);
-  timer = setInterval(async () => {
-    if (!startedAt) return;
+async function runTick(activeRunId) {
+  if (tickInProgress || activeRunId !== runId || !startedAt) return;
+  tickInProgress = true;
+
+  try {
     const elapsedMs = Date.now() - startedAt;
     const targetArrivals = arrivalsForWindow({ ratePerMinute, elapsedMs });
-    const pending = Math.max(0, targetArrivals - emittedArrivals);
+    const pending = Math.max(0, targetArrivals - generatedArrivals);
+
     for (let index = 0; index < pending; index += 1) {
-      await generateArrival();
+      if (activeRunId !== runId || !startedAt) break;
+      await generateArrival(activeRunId);
     }
-  }, TICK_MS);
-  if (typeof timer.unref === "function") timer.unref();
+  } finally {
+    tickInProgress = false;
+  }
 }
 
 function startSimulation({ ratePerMinute: requestedRate } = {}) {
@@ -76,23 +97,36 @@ function startSimulation({ ratePerMinute: requestedRate } = {}) {
     requestedRate <= 0 ||
     requestedRate > MAX_RATE_PER_MINUTE
   ) {
-    const error = new TypeError(`ratePerMinute must be greater than 0 and at most ${MAX_RATE_PER_MINUTE}`);
+    const error = new TypeError(
+      `ratePerMinute must be greater than 0 and at most ${MAX_RATE_PER_MINUTE}`,
+    );
     error.code = "INVALID_SIMULATION_RATE";
     error.statusCode = 400;
     throw error;
   }
 
+  if (timer) clearInterval(timer);
+  runId += 1;
   ratePerMinute = requestedRate;
   startedAt = Date.now();
-  emittedArrivals = 0;
+  generatedArrivals = 0;
+  successfulAllocations = 0;
+  fullLotArrivals = 0;
   lastError = null;
-  scheduleTick();
+
+  const activeRunId = runId;
+  timer = setInterval(() => {
+    void runTick(activeRunId);
+  }, TICK_MS);
+  if (typeof timer.unref === "function") timer.unref();
+
   return { status: "running" };
 }
 
 function stopSimulation() {
   if (timer) clearInterval(timer);
   timer = null;
+  runId += 1;
   startedAt = null;
   ratePerMinute = 0;
   return { status: "stopped" };
@@ -105,6 +139,7 @@ function validateFareOverride(config) {
   if (!Array.isArray(config.tiers) || config.tiers.length === 0) {
     throw new TypeError("tiers must be a non-empty array");
   }
+
   let previous = -1;
   const tiers = config.tiers.map((tier) => {
     const afterHours = tier?.afterHours;
@@ -118,16 +153,21 @@ function validateFareOverride(config) {
       !Number.isFinite(ratePerHour) ||
       ratePerHour < 0
     ) {
-      throw new TypeError("Fare tiers need increasing afterHours and non-negative ratePerHour values");
+      throw new TypeError(
+        "Fare tiers need increasing afterHours and non-negative ratePerHour values",
+      );
     }
     previous = afterHours;
     return { afterHours, ratePerHour };
   });
 
   for (const key of ["lostTicketPenalty", "overstayPenalty"]) {
-    if (config[key] !== undefined && (
-      typeof config[key] !== "number" || !Number.isFinite(config[key]) || config[key] < 0
-    )) {
+    if (
+      config[key] !== undefined &&
+      (typeof config[key] !== "number" ||
+        !Number.isFinite(config[key]) ||
+        config[key] < 0)
+    ) {
       throw new TypeError(`${key} must be a non-negative finite number`);
     }
   }
@@ -148,7 +188,14 @@ function setFareOverride(config) {
 
 function getFareOverride(vehicleType) {
   const config = fareOverrides.get(vehicleType);
-  return config ? { [vehicleType]: { ...config, tiers: config.tiers.map((tier) => ({ ...tier })) } } : undefined;
+  return config
+    ? {
+        [vehicleType]: {
+          ...config,
+          tiers: config.tiers.map((tier) => ({ ...tier })),
+        },
+      }
+    : undefined;
 }
 
 function clearFareOverrides() {
