@@ -74,6 +74,12 @@ export function createHttpApi({
       }),
 
     getLotStatus: () => request("/lot/status"),
+    getSimulationStatus: () => request("/dev/simulate/status", { auth: false }),
+    startSimulation: ({ ratePerMinute }) =>
+      request("/dev/simulate/start", { method: "POST", body: { ratePerMinute }, auth: false }),
+    stopSimulation: () => request("/dev/simulate/stop", { method: "POST", auth: false }),
+    setSimulationFareTiers: (config) =>
+      request("/dev/simulate/fare-tiers", { method: "PUT", body: config, auth: false }),
     createEntry: (entry) => request("/entry/vehicles", { method: "POST", body: entry }),
 
     lookupTicket: (ticketId) => request(`/exit/lookup/${encodeURIComponent(ticketId)}`),
