@@ -6,6 +6,7 @@ import EntryConsole from "./components/EntryConsole.jsx";
 import ExitConsole from "./components/ExitConsole.jsx";
 import LoginForm from "./components/LoginForm.jsx";
 import LotMap from "./components/LotMap.jsx";
+import SimulationConsole from "./components/SimulationConsole.jsx";
 
 const consoles = [
   { path: "/entry-1", label: "Entry Gate 1", role: "Entry operator", gateId: "Entry-1" },
@@ -42,6 +43,7 @@ function App() {
   const currentPath = window.location.pathname.replace(/\/$/, "") || "/";
   const currentConsole = consoles.find(({ path }) => path === currentPath);
   const isLogin = currentPath === "/login";
+  const isSimulationConsole = currentPath === "/dev/simulate";
   const session = isReal ? getSession() : null;
   // The server rejects cross-gate requests anyway; this keeps the visible
   // console from pretending the session has access it does not have.
@@ -95,7 +97,9 @@ function App() {
         </p>
       </section>
 
-      {currentConsole ? (
+      {isSimulationConsole ? (
+        <SimulationConsole api={api} />
+      ) : currentConsole ? (
         <>
           <section className="console-card" aria-labelledby="console-title">
             <div className="card-icon" aria-hidden="true">
