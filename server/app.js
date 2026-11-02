@@ -169,7 +169,6 @@ app.get("/api/lot/status", authenticateToken, async (req, res) => {
   }
 });
 
-
 // Sprint 4 T2: developer-only simulation controls. Never expose in production.
 function requireDevelopmentMode(req, res, next) {
   if (process.env.NODE_ENV === "production") {
@@ -186,7 +185,9 @@ app.get("/api/dev/simulate/status", requireDevelopmentMode, (_req, res) => {
 
 app.post("/api/dev/simulate/start", requireDevelopmentMode, (req, res) => {
   try {
-    return res.status(200).json(startSimulation({ ratePerMinute: req.body?.ratePerMinute }));
+    return res
+      .status(200)
+      .json(startSimulation({ ratePerMinute: req.body?.ratePerMinute }));
   } catch (error) {
     return sendServiceError(res, error);
   }
@@ -267,7 +268,11 @@ app.get(
   },
 );
 
-app.get("/api/exit/search", authenticateToken, requireGate("Exit-"), async (req, res) => {
+app.get(
+  "/api/exit/search",
+  authenticateToken,
+  requireGate("Exit-"),
+  async (req, res) => {
   try {
     const transactions = await searchByPlate(req.query.plateNumber);
     return res.status(200).json(transactions);
@@ -326,7 +331,11 @@ app.get(
   },
 );
 
-app.get("/api/admin/transactions", authenticateToken, requireAdmin, async (req, res) => {
+app.get(
+  "/api/admin/transactions",
+  authenticateToken,
+  requireAdmin,
+  async (req, res) => {
   try {
     const { plate, from, to, gate } = req.query;
     return res.status(200).json(await listTransactions({ plate, from, to, gate }));
@@ -335,7 +344,11 @@ app.get("/api/admin/transactions", authenticateToken, requireAdmin, async (req, 
   }
 });
 
-app.get("/api/admin/audit-log", authenticateToken, requireAdmin, async (req, res) => {
+app.get(
+  "/api/admin/audit-log",
+  authenticateToken,
+  requireAdmin,
+  async (req, res) => {
   try {
     const { action, actor, from, to } = req.query;
     return res.status(200).json(await listAuditEntries({ action, actor, from, to }));
@@ -397,7 +410,11 @@ app.put(
   },
 );
 
-app.put("/api/admin/config/spots", authenticateToken, requireAdmin, async (req, res) => {
+app.put(
+  "/api/admin/config/spots",
+  authenticateToken,
+  requireAdmin,
+  async (req, res) => {
   try {
     const { zone, count } = req.body || {};
     const result = await updateSpotCount({ zone, count }, req.user);
