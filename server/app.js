@@ -273,13 +273,14 @@ app.get(
   authenticateToken,
   requireGate("Exit-"),
   async (req, res) => {
-  try {
-    const transactions = await searchByPlate(req.query.plateNumber);
-    return res.status(200).json(transactions);
-  } catch (error) {
-    return sendServiceError(res, error);
-  }
-});
+    try {
+      const transactions = await searchByPlate(req.query.plateNumber);
+      return res.status(200).json(transactions);
+    } catch (error) {
+      return sendServiceError(res, error);
+    }
+  },
+);
 
 app.post(
   "/api/exit/process",
@@ -336,26 +337,28 @@ app.get(
   authenticateToken,
   requireAdmin,
   async (req, res) => {
-  try {
-    const { plate, from, to, gate } = req.query;
-    return res.status(200).json(await listTransactions({ plate, from, to, gate }));
-  } catch (error) {
-    return sendServiceError(res, error);
-  }
-});
+    try {
+      const { plate, from, to, gate } = req.query;
+      return res.status(200).json(await listTransactions({ plate, from, to, gate }));
+    } catch (error) {
+      return sendServiceError(res, error);
+    }
+  },
+);
 
 app.get(
   "/api/admin/audit-log",
   authenticateToken,
   requireAdmin,
   async (req, res) => {
-  try {
-    const { action, actor, from, to } = req.query;
-    return res.status(200).json(await listAuditEntries({ action, actor, from, to }));
-  } catch (error) {
-    return sendServiceError(res, error);
-  }
-});
+    try {
+      const { action, actor, from, to } = req.query;
+      return res.status(200).json(await listAuditEntries({ action, actor, from, to }));
+    } catch (error) {
+      return sendServiceError(res, error);
+    }
+  },
+);
 
 // Sprint 3 T2: gate operators report overstays only for their own gate.
 app.post(
