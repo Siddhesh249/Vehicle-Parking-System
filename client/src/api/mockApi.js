@@ -376,7 +376,7 @@ export function createMockApi({ delayMs = 150 } = {}) {
       };
     },
 
-    async setFareOverride(config = {}) {
+    async setSimulationFareTiers(config = {}) {
       const { vehicleType, tiers, firstHourFree, lostTicketPenalty } = config;
       if (!fareConfig[vehicleType])
         return fail(400, "vehicleType must be either '2W' or '4W'");

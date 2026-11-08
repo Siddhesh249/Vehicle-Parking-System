@@ -120,7 +120,7 @@ describe("S3-T4 — real API transport", () => {
     ["stopSimulation", [], "POST", "/api/dev/simulate/stop"],
     ["getSimulationStatus", [], "GET", "/api/dev/simulate/status"],
     [
-      "setFareOverride",
+      "setSimulationFareTiers",
       [{ vehicleType: "4W", tiers: [] }],
       "PUT",
       "/api/dev/simulate/fare-tiers",

@@ -7,7 +7,9 @@ import EntryConsole from "./components/EntryConsole.jsx";
 import ExitConsole from "./components/ExitConsole.jsx";
 import LoginForm from "./components/LoginForm.jsx";
 import LotMap from "./components/LotMap.jsx";
+import FareOverrideForm from "./components/FareOverrideForm.jsx";
 import SimulationConsole from "./components/SimulationConsole.jsx";
+import SimulationStats from "./components/SimulationStats.jsx";
 
 const consoles = [
   { path: "/entry-1", label: "Entry Gate 1", role: "Entry operator", gateId: "Entry-1" },
@@ -163,6 +165,10 @@ function App() {
         ) : isSimulation ? (
           <>
             <SimulationConsole api={api} />
+            <div className="sim-grid">
+              <SimulationStats api={api} />
+              <FareOverrideForm api={api} />
+            </div>
             {/* In mock mode each tab has its own data, so the lot map must be on this page to show the effect. */}
             <LotMap api={api} realtime={realtime} />
           </>

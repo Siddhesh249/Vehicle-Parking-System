@@ -81,7 +81,7 @@ describe("mock fare override (VPS-DEV-002)", () => {
   test("changes the fare for later exits, for that vehicle type only", async () => {
     const api = createMockApi({ delayMs: 0 });
     await expect(
-      api.setFareOverride({
+      api.setSimulationFareTiers({
         vehicleType: "4W",
         tiers: [{ afterHours: 1, ratePerHour: 100 }],
         lostTicketPenalty: 10,
@@ -98,7 +98,7 @@ describe("mock fare override (VPS-DEV-002)", () => {
 
   test("can turn off the free first hour", async () => {
     const api = createMockApi({ delayMs: 0 });
-    await api.setFareOverride({
+    await api.setSimulationFareTiers({
       vehicleType: "4W",
       firstHourFree: false,
       tiers: [{ afterHours: 0, ratePerHour: 10 }],
@@ -109,7 +109,7 @@ describe("mock fare override (VPS-DEV-002)", () => {
 
   test("does not leak into other mock instances", async () => {
     const first = createMockApi({ delayMs: 0 });
-    await first.setFareOverride({
+    await first.setSimulationFareTiers({
       vehicleType: "4W",
       tiers: [{ afterHours: 1, ratePerHour: 999 }],
     });
@@ -134,6 +134,6 @@ describe("mock fare override (VPS-DEV-002)", () => {
     [{ vehicleType: "4W", tiers: [{ afterHours: 1, ratePerHour: -1 }] }],
   ])("rejects an invalid override %#", async (config) => {
     const api = createMockApi({ delayMs: 0 });
-    await expect(api.setFareOverride(config)).rejects.toMatchObject({ status: 400 });
+    await expect(api.setSimulationFareTiers(config)).rejects.toMatchObject({ status: 400 });
   });
 });

@@ -73,14 +73,14 @@ describe("final accessibility pass", () => {
     const reservedBefore = screen.getAllByText("Reserved").length;
 
     await user.type(screen.getByLabelText(/arrivals per minute/i), "600");
-    await user.click(screen.getByRole("button", { name: /start simulation/i }));
+    await user.click(screen.getByRole("button", { name: /^start$/i }));
     await waitFor(
       () =>
         expect(screen.getAllByText("Reserved").length).toBeGreaterThan(reservedBefore),
       { timeout: 4000 },
     );
 
-    await user.click(screen.getByRole("button", { name: /stop simulation/i }));
+    await user.click(screen.getByRole("button", { name: /^stop$/i }));
     await screen.findByText("Stopped");
   });
 });
