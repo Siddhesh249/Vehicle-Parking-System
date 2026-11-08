@@ -11,14 +11,28 @@ describe("mock realtime (same interface as the Socket.io connection)", () => {
       expect.arrayContaining([{ id: "4W-01", zone: "4W", status: "reserved" }]),
     );
 
-    const ticket = await api.createEntry({ plateNumber: "KA09ZZ0001", vehicleType: "2W", gateId: "Entry-1" });
-    expect(handlers.onUpdate).toHaveBeenLastCalledWith({ spotId: ticket.spotId, status: "reserved" });
+    const ticket = await api.createEntry({
+      plateNumber: "KA09ZZ0001",
+      vehicleType: "2W",
+      gateId: "Entry-1",
+    });
+    expect(handlers.onUpdate).toHaveBeenLastCalledWith({
+      spotId: ticket.spotId,
+      status: "reserved",
+    });
 
     await api.processExit({ ticketId: ticket.ticketId, gateId: "Exit-1" });
-    expect(handlers.onUpdate).toHaveBeenLastCalledWith({ spotId: ticket.spotId, status: "free" });
+    expect(handlers.onUpdate).toHaveBeenLastCalledWith({
+      spotId: ticket.spotId,
+      status: "free",
+    });
 
     disconnect();
-    await api.createEntry({ plateNumber: "KA09ZZ0002", vehicleType: "2W", gateId: "Entry-1" });
+    await api.createEntry({
+      plateNumber: "KA09ZZ0002",
+      vehicleType: "2W",
+      gateId: "Entry-1",
+    });
     expect(handlers.onUpdate).toHaveBeenCalledTimes(2);
   });
 

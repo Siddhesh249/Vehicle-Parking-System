@@ -4,14 +4,24 @@
 jest.mock("../utils/jwtUtils", () => ({ verifyToken: jest.fn() }));
 
 const { verifyToken } = require("../utils/jwtUtils");
-const { authenticateToken, requireGate, requireRole } = require("../middleware/authMiddleware");
+const {
+  authenticateToken,
+  requireGate,
+  requireRole,
+} = require("../middleware/authMiddleware");
 
 function response() {
   return {
     statusCode: 200,
     body: undefined,
-    status(code) { this.statusCode = code; return this; },
-    json(body) { this.body = body; return this; },
+    status(code) {
+      this.statusCode = code;
+      return this;
+    },
+    json(body) {
+      this.body = body;
+      return this;
+    },
   };
 }
 
@@ -32,7 +42,9 @@ describe("auth middleware", () => {
   });
 
   test("rejects expired, malformed, or tampered tokens", () => {
-    verifyToken.mockImplementation(() => { throw new Error("invalid token"); });
+    verifyToken.mockImplementation(() => {
+      throw new Error("invalid token");
+    });
     const req = { headers: { authorization: "Bearer invalid.jwt.token" } };
     const res = response();
     const next = jest.fn();
@@ -56,16 +68,19 @@ describe("auth middleware", () => {
     expect(next).toHaveBeenCalledTimes(1);
   });
 
-  test.each([["Entry-1"], ["Entry-2"], ["Exit-1"], ["Exit-2"]])("allows the operator assigned to %s", (gateId) => {
-    const req = { user: { role: "operator", gateId } };
-    const next = jest.fn();
-    const res = response();
+  test.each([["Entry-1"], ["Entry-2"], ["Exit-1"], ["Exit-2"]])(
+    "allows the operator assigned to %s",
+    (gateId) => {
+      const req = { user: { role: "operator", gateId } };
+      const next = jest.fn();
+      const res = response();
 
-    requireGate(gateId)(req, res, next);
+      requireGate(gateId)(req, res, next);
 
-    expect(next).toHaveBeenCalledTimes(1);
-    expect(res.statusCode).toBe(200);
-  });
+      expect(next).toHaveBeenCalledTimes(1);
+      expect(res.statusCode).toBe(200);
+    },
+  );
 
   test("rejects a valid operator token scoped to a different gate", () => {
     const req = { user: { role: "operator", gateId: "Entry-1" } };

@@ -66,6 +66,24 @@ describe("S3-T4 — admin panels refresh from real API responses", () => {
     expect(source.unsubscribe).toHaveBeenCalledTimes(1);
   });
 
+  test("loads automatically detected overstays when the dashboard opens", async () => {
+    const { api, realtime } = setup();
+    api.getOverstays = jest.fn().mockResolvedValue([
+      {
+        vehicleId: "vehicle-auto",
+        ticketId: "TKT-AUTO",
+        plateNumber: "KA09OV0001",
+        gateId: "Entry-1",
+        duration: 10800,
+      },
+    ]);
+
+    render(<AdminConsole api={api} realtime={realtime} />);
+
+    expect(await screen.findByText("KA09OV0001")).toBeInTheDocument();
+    expect(screen.getByText(/parked 3 hours/i)).toBeInTheDocument();
+  });
+
   test("shows an overstay alert and force-releases it from the admin dashboard", async () => {
     const { api, realtime, source } = setup();
     api.forceRelease = jest

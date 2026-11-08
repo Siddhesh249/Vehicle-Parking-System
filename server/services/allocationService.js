@@ -38,7 +38,10 @@ async function releaseClaimedSpot(spotId) {
  * cannot both reserve the same free spot. The entry timestamp is generated on
  * the server when the service receives the request; callers cannot supply it.
  */
-async function allocateSpotInOrder({ plateNumber, vehicleType, gateId, operatorId }, entryTimestamp) {
+async function allocateSpotInOrder(
+  { plateNumber, vehicleType, gateId, operatorId },
+  entryTimestamp,
+) {
   if (typeof plateNumber !== "string" || !plateNumber.trim()) {
     throw inputError("plateNumber is required");
   }
@@ -53,7 +56,6 @@ async function allocateSpotInOrder({ plateNumber, vehicleType, gateId, operatorI
   }
 
   const normalizedPlate = plateNumber.trim().toUpperCase();
-
 
   const spot = await Spot.findOneAndUpdate(
     { zone: vehicleType, status: "free" },
@@ -148,7 +150,10 @@ function allocateSpot(input = {}) {
   const current = previous
     .catch(() => {})
     .then(() => allocateSpotInOrder(allocationInput, receivedAt));
-  const tail = current.then(() => undefined, () => undefined);
+  const tail = current.then(
+    () => undefined,
+    () => undefined,
+  );
 
   allocationQueues.set(queueKey, tail);
   tail.finally(() => {

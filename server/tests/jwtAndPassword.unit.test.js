@@ -77,7 +77,7 @@ describe("verifyToken", () => {
     const [header, , signature] = token.split(".");
     // Replace the payload with a different base64 value
     const fakePayload = Buffer.from(
-      JSON.stringify({ userId: "evil", role: "admin" })
+      JSON.stringify({ userId: "evil", role: "admin" }),
     ).toString("base64url");
     const tampered = `${header}.${fakePayload}.${signature}`;
     expect(() => verifyToken(tampered)).toThrow();

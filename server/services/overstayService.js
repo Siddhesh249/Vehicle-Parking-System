@@ -7,6 +7,7 @@ const { getFareConfig } = require("./fareConfigService");
 const { writeAuditEntry } = require("./auditService");
 
 const OBJECT_ID_PATTERN = /^[0-9a-f]{24}$/i;
+const DEFAULT_OVERSTAY_THRESHOLD_MINUTES = 120;
 
 function serviceError(message, code, statusCode) {
   const error = new Error(message);
@@ -36,7 +37,74 @@ async function findActiveTransaction(vehicleId) {
 }
 
 function secondsBetween(start, end) {
-  return (new Date(end).getTime() - new Date(start).getTime()) / 1000;
+  return Math.max(0, (new Date(end).getTime() - new Date(start).getTime()) / 1000);
+}
+
+function overstayThresholdMinutes(value = process.env.OVERSTAY_THRESHOLD_MINUTES) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_OVERSTAY_THRESHOLD_MINUTES;
+  return parsed;
+}
+
+function alertFor(transaction, now) {
+  return {
+    vehicleId: String(transaction._id),
+    ticketId: transaction.ticketId,
+    plateNumber: transaction.plateNumber,
+    vehicleType: transaction.vehicleType,
+    gateId: transaction.entryGateId,
+    entryTimestamp: transaction.entryTimestamp,
+    duration: secondsBetween(transaction.entryTimestamp, now),
+  };
+}
+
+/**
+ * Find every active transaction that has crossed the configured overstay
+ * threshold, or was explicitly flagged by an operator (VPS-F-040). This is a
+ * read-only view used by the admin dashboard and its periodic refresh.
+ */
+async function listOverstays({
+  now = new Date(),
+  thresholdMinutes = overstayThresholdMinutes(),
+} = {}) {
+  const cutoff = new Date(now.getTime() - thresholdMinutes * 60 * 1000);
+  const transactions = await Transaction.find({
+    status: "active",
+    $or: [{ isOverstay: true }, { entryTimestamp: { $lte: cutoff } }],
+  }).sort({ entryTimestamp: 1 });
+
+  return transactions.map((transaction) => ({
+    ...alertFor(transaction, now),
+    autoFlagged: !transaction.isOverstay,
+  }));
+}
+
+/**
+ * Mark newly overstaying vehicles in MongoDB and return one alert per vehicle.
+ * Called by the server's background scanner; returning only the newly flagged
+ * rows keeps Socket.io notifications from repeating on every scan.
+ */
+async function scanOverstays({
+  now = new Date(),
+  thresholdMinutes = overstayThresholdMinutes(),
+} = {}) {
+  const cutoff = new Date(now.getTime() - thresholdMinutes * 60 * 1000);
+  const candidates = await Transaction.find({
+    status: "active",
+    isOverstay: false,
+    entryTimestamp: { $lte: cutoff },
+  });
+
+  const newlyFlagged = [];
+  for (const candidate of candidates) {
+    const flagged = await Transaction.findOneAndUpdate(
+      { _id: candidate._id, status: "active", isOverstay: false },
+      { $set: { isOverstay: true } },
+      { returnDocument: "after" },
+    );
+    if (flagged) newlyFlagged.push(alertFor(flagged, now));
+  }
+  return newlyFlagged;
 }
 
 /** Flag an overstaying vehicle and record the gate's notification (VPS-F-040, VPS-F-041). */
@@ -152,4 +220,11 @@ async function forceRelease({ vehicleId, admin, now = new Date() }) {
   };
 }
 
-module.exports = { notifyOverstay, forceRelease };
+module.exports = {
+  notifyOverstay,
+  forceRelease,
+  listOverstays,
+  scanOverstays,
+  overstayThresholdMinutes,
+  DEFAULT_OVERSTAY_THRESHOLD_MINUTES,
+};

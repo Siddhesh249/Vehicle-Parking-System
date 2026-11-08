@@ -25,7 +25,7 @@
   color: var(--red, #c93b3b) !important;
   font-size: 11px;
   font-weight: 700;
-  letter-spacing: .12em;
+  letter-spacing: 0.12em;
 }
 
 .simulation-console__state {
@@ -53,11 +53,14 @@
   font-weight: 600;
 }
 
-.simulation-console__field input {
+.simulation-console__field input,
+.simulation-console__field select {
   min-height: 42px;
   border: 1px solid var(--line, #e8e9eb);
   border-radius: 8px;
   padding: 8px 10px;
+  background: #fff;
+  color: #202124;
   font: inherit;
 }
 
@@ -67,9 +70,35 @@
   margin-top: 16px;
 }
 
+.simulation-console__counters {
+  margin: 0;
+  padding: 10px 12px;
+  border-left: 4px solid var(--red, #c93b3b);
+  background: #fdf0f0;
+  color: #7a1f1f;
+  font-size: 0.9rem;
+}
+
+.simulation-console__override {
+  display: grid;
+  gap: 14px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line, #e8e9eb);
+}
+
+.simulation-console__override h3 {
+  margin: 0 0 4px;
+  font-size: 1.05rem;
+}
+
 .simulation-console button:disabled {
   cursor: not-allowed;
-  opacity: .55;
+  opacity: 0.55;
+}
+
+.simulation-console :focus-visible {
+  outline: 3px solid #202124;
+  outline-offset: 2px;
 }
 
 @media (max-width: 520px) {

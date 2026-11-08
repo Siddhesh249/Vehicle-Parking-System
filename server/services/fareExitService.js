@@ -87,7 +87,11 @@ async function processExit({
   const durationMilliseconds =
     exitTime.getTime() - new Date(transaction.entryTimestamp).getTime();
   if (!Number.isFinite(durationMilliseconds) || durationMilliseconds < 0) {
-    throw new RangeError("Exit timestamp cannot be before entry timestamp");
+    throw serviceError(
+      "Exit timestamp cannot be before entry timestamp",
+      "INVALID_REQUEST",
+      400,
+    );
   }
   const durationSeconds = durationMilliseconds / 1000;
   const fareConfig = await getFareConfig(transaction.vehicleType);

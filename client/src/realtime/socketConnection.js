@@ -33,6 +33,9 @@ export function createSocketConnection({
     });
     socket.on("disconnect", () => onStatus?.("disconnected"));
     socket.on("connect_error", () => onStatus?.("disconnected"));
+    // The server rejects an expired/invalid token during `identify`; surface it
+    // instead of continuing to show a misleading "Live updates on" label.
+    socket.on("identify:error", () => onStatus?.("signed-out"));
     socket.on("lot:snapshot", (payload) => onSnapshot?.(toSpots(payload)));
     socket.on("spot:update", (payload) =>
       onUpdate?.({ spotId: payload.spotId ?? payload.id, status: payload.status }),

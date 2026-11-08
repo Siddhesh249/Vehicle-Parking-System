@@ -2,6 +2,7 @@
 
 const FareTierConfig = require("../models/FareTierConfig");
 const Spot = require("../models/Spot");
+const { DEFAULT_FARE_CONFIG } = require("./fareService");
 const { writeAuditEntry } = require("./auditService");
 
 const ZONES = ["2W", "4W"];
@@ -44,20 +45,78 @@ function validateTiers(tiers) {
   });
 }
 
+function validatePenalty(value, name) {
+  if (value !== undefined && !isNonNegativeNumber(value)) {
+    throw serviceError(`${name} must be a non-negative number`, "INVALID_TIERS", 400);
+  }
+}
+
+function normalizePublicConfig(vehicleType, configured) {
+  const fallback = DEFAULT_FARE_CONFIG[vehicleType];
+  const tiers = configured?.tiers?.length
+    ? configured.tiers.map(({ afterHours, ratePerHour }) => ({
+        afterHours,
+        rate: ratePerHour,
+      }))
+    : fallback.tiers.map(({ afterHours, ratePerHour }) => ({
+        afterHours,
+        rate: ratePerHour,
+      }));
+
+  return {
+    firstHourFree: configured?.firstHourFree ?? fallback.firstHourFree,
+    tiers,
+    lostTicketPenalty: configured?.lostTicketPenalty ?? fallback.lostTicketPenalty,
+    overstayPenalty: configured?.overstayPenalty ?? fallback.overstayPenalty,
+  };
+}
+
+/** Current effective fare configuration for the admin editor (VPS-F-055). */
+async function getFareConfig() {
+  const configured = await FareTierConfig.find({
+    vehicleType: { $in: ZONES },
+  }).lean();
+  const byType = new Map(configured.map((config) => [config.vehicleType, config]));
+
+  return Object.fromEntries(
+    ZONES.map((zone) => [zone, normalizePublicConfig(zone, byType.get(zone))]),
+  );
+}
+
+/** Current configured spot counts per zone (VPS-F-056). */
+async function getSpotConfig() {
+  const counts = await Spot.aggregate([{ $group: { _id: "$zone", count: { $sum: 1 } } }]);
+  const byZone = Object.fromEntries(ZONES.map((zone) => [zone, 0]));
+  for (const { _id, count } of counts) {
+    if (Object.prototype.hasOwnProperty.call(byZone, _id)) byZone[_id] = count;
+  }
+  return byZone;
+}
+
 /** Replace the fare tier table for one vehicle type (VPS-F-055). */
-async function updateFareTiers({ vehicleType, tiers } = {}, actor) {
+async function updateFareTiers(
+  { vehicleType, tiers, firstHourFree, lostTicketPenalty, overstayPenalty } = {},
+  actor,
+) {
   if (!ZONES.includes(vehicleType)) {
     throw serviceError("vehicleType must be either '2W' or '4W'", "INVALID_TIERS", 400);
   }
   validateTiers(tiers);
+  validatePenalty(lostTicketPenalty, "lostTicketPenalty");
+  validatePenalty(overstayPenalty, "overstayPenalty");
 
   const storedTiers = tiers.map(({ afterHours, rate }) => ({
     afterHours,
     ratePerHour: rate,
   }));
+  const update = { tiers: storedTiers };
+  if (typeof firstHourFree === "boolean") update.firstHourFree = firstHourFree;
+  if (lostTicketPenalty !== undefined) update.lostTicketPenalty = lostTicketPenalty;
+  if (overstayPenalty !== undefined) update.overstayPenalty = overstayPenalty;
+
   await FareTierConfig.findOneAndUpdate(
     { vehicleType },
-    { $set: { tiers: storedTiers }, $setOnInsert: { vehicleType } },
+    { $set: update, $setOnInsert: { vehicleType } },
     {
       upsert: true,
       returnDocument: "after",
@@ -70,9 +129,15 @@ async function updateFareTiers({ vehicleType, tiers } = {}, actor) {
     action: "FARE_CONFIG_UPDATED",
     actorId: actor.userId,
     actorRole: actor.role,
-    details: { vehicleType, tiers: storedTiers },
+    details: {
+      vehicleType,
+      tiers: storedTiers,
+      ...(firstHourFree === undefined ? {} : { firstHourFree }),
+      ...(lostTicketPenalty === undefined ? {} : { lostTicketPenalty }),
+      ...(overstayPenalty === undefined ? {} : { overstayPenalty }),
+    },
   });
-  return { updated: true };
+  return { updated: true, vehicleType };
 }
 
 function nextSpotNumbers(zone, existingNumbers, needed) {
@@ -151,4 +216,10 @@ async function updateSpotCount({ zone, count } = {}, actor) {
   return { updated: true, zone, count: finalCount };
 }
 
-module.exports = { updateFareTiers, updateSpotCount };
+module.exports = {
+  getFareConfig,
+  getSpotConfig,
+  updateFareTiers,
+  updateSpotCount,
+  MAX_SPOTS_PER_ZONE,
+};

@@ -1,8 +1,11 @@
-const pick = (record, keys) => keys.map((key) => record?.[key]).find((v) => v !== undefined);
+const pick = (record, keys) =>
+  keys.map((key) => record?.[key]).find((v) => v !== undefined);
 
 const timeLabel = (value) => {
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? String(value ?? "") : date.toISOString().slice(11, 16);
+  return Number.isNaN(date.getTime())
+    ? String(value ?? "")
+    : date.toISOString().slice(11, 16);
 };
 const dayLabel = (value) => String(value ?? "").slice(5, 10) || String(value ?? "");
 

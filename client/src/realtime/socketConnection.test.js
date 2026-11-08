@@ -37,6 +37,14 @@ describe("S3-T4 — Socket.io client", () => {
     ]);
   });
 
+  test("reports an expired identify handshake as signed out", () => {
+    const { socket, handlers } = setup();
+    socket.trigger("connect");
+    socket.trigger("identify:error", { code: "UNAUTHORIZED" });
+
+    expect(handlers.onStatus).toHaveBeenLastCalledWith("signed-out");
+  });
+
   test("keeps exactly one listener per event across reconnects (no duplicates)", () => {
     const { socket } = setup();
     for (let i = 0; i < 3; i += 1) socket.trigger("connect");

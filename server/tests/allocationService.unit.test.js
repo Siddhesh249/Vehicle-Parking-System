@@ -126,17 +126,23 @@ describe("allocateSpot", () => {
     expect(Spot.findOneAndUpdate).toHaveBeenCalledTimes(2);
   });
 
-
   test("does not let a later same-zone request claim a spot before the earlier request completes", async () => {
     let finishFirstTransaction;
     Spot.findOneAndUpdate
       .mockResolvedValueOnce({ _id: "spot-first", zone: "4W" })
       .mockResolvedValueOnce({ _id: "spot-second", zone: "4W" });
-    Vehicle.findOneAndUpdate.mockResolvedValue({ plateNumber: "TEST", vehicleType: "4W" });
+    Vehicle.findOneAndUpdate.mockResolvedValue({
+      plateNumber: "TEST",
+      vehicleType: "4W",
+    });
     Transaction.create
-      .mockImplementationOnce(() => new Promise((resolve) => {
-        finishFirstTransaction = () => resolve({ _id: "tx-first", ticketId: "first" });
-      }))
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishFirstTransaction = () =>
+              resolve({ _id: "tx-first", ticketId: "first" });
+          }),
+      )
       .mockResolvedValueOnce({ _id: "tx-second", ticketId: "second" });
 
     const first = allocateSpot(input({ plateNumber: "KA01FIRST" }));

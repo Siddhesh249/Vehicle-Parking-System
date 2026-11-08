@@ -12,17 +12,24 @@ jest.mock("../utils/jwtUtils", () => ({ verifyToken: jest.fn() }));
 const request = require("supertest");
 const { app } = require("../app");
 const { allocateSpot } = require("../services/allocationService");
-const { lookupByTicket, searchByPlate, processExit } = require("../services/fareExitService");
+const {
+  lookupByTicket,
+  searchByPlate,
+  processExit,
+} = require("../services/fareExitService");
 const { verifyToken } = require("../utils/jwtUtils");
 
 describe("Sprint 3 entry/exit API routes", () => {
   beforeEach(() => jest.clearAllMocks());
 
   test("rejects requests without a Bearer token", async () => {
-    await request(app).post("/api/entry/vehicles").send({
-      plateNumber: "KA01AB1234",
-      vehicleType: "4W",
-    }).expect(401);
+    await request(app)
+      .post("/api/entry/vehicles")
+      .send({
+        plateNumber: "KA01AB1234",
+        vehicleType: "4W",
+      })
+      .expect(401);
 
     expect(allocateSpot).not.toHaveBeenCalled();
   });

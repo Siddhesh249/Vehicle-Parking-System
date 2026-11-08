@@ -51,4 +51,38 @@ describe("S4-T3 — Simulation Console", () => {
     expect(screen.getByRole("button", { name: /start/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /stop/i })).toBeInTheDocument();
   });
+
+  test("shows generator counters and applies a runtime fare-tier override", async () => {
+    const user = userEvent.setup();
+    const api = {
+      ...makeApi(),
+      getSimulationStatus: jest.fn().mockResolvedValue({
+        running: false,
+        ratePerMinute: 30,
+        generatedArrivals: 3,
+        successfulAllocations: 2,
+        fullLotArrivals: 1,
+        lastError: null,
+      }),
+      setSimulationFareTiers: jest.fn().mockResolvedValue({ updated: true }),
+    };
+    render(<SimulationConsole api={api} />);
+
+    expect(await screen.findByText(/3 arrivals generated/i)).toBeInTheDocument();
+    const rate = screen.getByLabelText("Tier 1 rate per hour");
+    await user.clear(rate);
+    await user.type(rate, "22");
+    await user.click(screen.getByRole("button", { name: /apply fare override/i }));
+
+    expect(api.setSimulationFareTiers).toHaveBeenCalledWith(
+      expect.objectContaining({
+        vehicleType: "4W",
+        firstHourFree: true,
+        tiers: expect.arrayContaining([{ afterHours: 1, ratePerHour: 22 }]),
+        lostTicketPenalty: 100,
+        overstayPenalty: 200,
+      }),
+    );
+    expect(await screen.findByText(/4W fare override applied/i)).toBeInTheDocument();
+  });
 });

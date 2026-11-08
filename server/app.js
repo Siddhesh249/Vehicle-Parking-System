@@ -14,8 +14,17 @@ const {
 } = require("./services/fareExitService");
 const { getOccupancy, getRevenue } = require("./services/analyticsService");
 const { listTransactions, listAuditEntries } = require("./services/adminQueryService");
-const { updateFareTiers, updateSpotCount } = require("./services/adminConfigService");
-const { notifyOverstay, forceRelease } = require("./services/overstayService");
+const {
+  getFareConfig,
+  getSpotConfig,
+  updateFareTiers,
+  updateSpotCount,
+} = require("./services/adminConfigService");
+const {
+  notifyOverstay,
+  forceRelease,
+  listOverstays,
+} = require("./services/overstayService");
 const { requireRole } = require("./middleware/authMiddleware");
 const { verifyToken } = require("./utils/jwtUtils");
 const {
@@ -27,19 +36,34 @@ const {
 const Spot = require("./models/Spot");
 
 const app = express();
+app.disable("x-powered-by");
 const server = http.createServer(app);
 
 const clientUrl = process.env.CLIENT_URL || "http://localhost:5173";
+const allowedOrigins = new Set(
+  clientUrl
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean),
+);
+const localOriginPattern = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 
-app.use(cors({ origin: clientUrl }));
-app.use(express.json());
+function isAllowedOrigin(origin) {
+  return !origin || allowedOrigins.has(origin) || localOriginPattern.test(origin);
+}
 
-const io = new Server(server, {
-  cors: {
-    origin: clientUrl,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
+const corsOptions = {
+  origin(origin, callback) {
+    if (isAllowedOrigin(origin)) return callback(null, true);
+    return callback(new Error("Origin is not allowed by CORS"));
   },
-});
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
+};
+
+app.use(cors(corsOptions));
+app.use(express.json({ limit: "1mb" }));
+
+const io = new Server(server, { cors: corsOptions });
 
 function socketRoomFor(user) {
   return user.role === "admin" ? "admin" : `gate:${user.gateId}`;
@@ -171,7 +195,10 @@ app.get("/api/lot/status", authenticateToken, async (req, res) => {
 
 // Sprint 4 T2: developer-only simulation controls. Never expose in production.
 function requireDevelopmentMode(req, res, next) {
-  if (process.env.NODE_ENV === "production") {
+  if (
+    process.env.NODE_ENV === "production" ||
+    process.env.DISABLE_SIMULATION === "true"
+  ) {
     return res.status(404).json({
       error: { code: "NOT_FOUND", message: "Route not found" },
     });
@@ -225,7 +252,12 @@ app.post("/api/auth/login", async (req, res) => {
     const result = await login(username.trim(), password);
     return res.status(200).json(result);
   } catch (error) {
-    const status = error.statusCode || 401;
+    const status = Number.isInteger(error.statusCode) ? error.statusCode : 500;
+    if (status === 500) {
+      return res.status(500).json({
+        error: { code: "INTERNAL_ERROR", message: "An unexpected server error occurred" },
+      });
+    }
     const code = status === 423 ? "ACCOUNT_LOCKED" : "INVALID_CREDENTIALS";
     return res.status(status).json({ error: { code, message: error.message } });
   }
@@ -268,19 +300,14 @@ app.get(
   },
 );
 
-app.get(
-  "/api/exit/search",
-  authenticateToken,
-  requireGate("Exit-"),
-  async (req, res) => {
-    try {
-      const transactions = await searchByPlate(req.query.plateNumber);
-      return res.status(200).json(transactions);
-    } catch (error) {
-      return sendServiceError(res, error);
-    }
-  },
-);
+app.get("/api/exit/search", authenticateToken, requireGate("Exit-"), async (req, res) => {
+  try {
+    const transactions = await searchByPlate(req.query.plateNumber);
+    return res.status(200).json(transactions);
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
 
 app.post(
   "/api/exit/process",
@@ -332,33 +359,33 @@ app.get(
   },
 );
 
-app.get(
-  "/api/admin/transactions",
-  authenticateToken,
-  requireAdmin,
-  async (req, res) => {
-    try {
-      const { plate, from, to, gate } = req.query;
-      return res.status(200).json(await listTransactions({ plate, from, to, gate }));
-    } catch (error) {
-      return sendServiceError(res, error);
-    }
-  },
-);
+app.get("/api/admin/transactions", authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { plate, from, to, gate } = req.query;
+    return res.status(200).json(await listTransactions({ plate, from, to, gate }));
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
 
-app.get(
-  "/api/admin/audit-log",
-  authenticateToken,
-  requireAdmin,
-  async (req, res) => {
-    try {
-      const { action, actor, from, to } = req.query;
-      return res.status(200).json(await listAuditEntries({ action, actor, from, to }));
-    } catch (error) {
-      return sendServiceError(res, error);
-    }
-  },
-);
+app.get("/api/admin/audit-log", authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { action, actor, from, to } = req.query;
+    return res.status(200).json(await listAuditEntries({ action, actor, from, to }));
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
+
+// Admin overstay feed: vehicles become visible automatically once the
+// configurable threshold is crossed, even if no operator has notified yet.
+app.get("/api/admin/overstays", authenticateToken, requireAdmin, async (_req, res) => {
+  try {
+    return res.status(200).json({ overstays: await listOverstays() });
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
 
 // Sprint 3 T2: gate operators report overstays only for their own gate.
 app.post(
@@ -396,17 +423,14 @@ app.post(
   },
 );
 
-// Sprint 3 T2: admin configuration writes and overstay force-release.
-app.put(
+// Sprint 3 T2 / Sprint 4 polish: admin configuration reads and writes.
+app.get(
   "/api/admin/config/fare-tiers",
   authenticateToken,
   requireAdmin,
-  async (req, res) => {
+  async (_req, res) => {
     try {
-      const { vehicleType, tiers } = req.body || {};
-      return res
-        .status(200)
-        .json(await updateFareTiers({ vehicleType, tiers }, req.user));
+      return res.status(200).json(await getFareConfig());
     } catch (error) {
       return sendServiceError(res, error);
     }
@@ -414,10 +438,36 @@ app.put(
 );
 
 app.put(
-  "/api/admin/config/spots",
+  "/api/admin/config/fare-tiers",
   authenticateToken,
   requireAdmin,
   async (req, res) => {
+    try {
+      const { vehicleType, tiers, firstHourFree, lostTicketPenalty, overstayPenalty } =
+        req.body || {};
+      return res
+        .status(200)
+        .json(
+          await updateFareTiers(
+            { vehicleType, tiers, firstHourFree, lostTicketPenalty, overstayPenalty },
+            req.user,
+          ),
+        );
+    } catch (error) {
+      return sendServiceError(res, error);
+    }
+  },
+);
+
+app.get("/api/admin/config/spots", authenticateToken, requireAdmin, async (_req, res) => {
+  try {
+    return res.status(200).json(await getSpotConfig());
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
+
+app.put("/api/admin/config/spots", authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { zone, count } = req.body || {};
     const result = await updateSpotCount({ zone, count }, req.user);
@@ -455,6 +505,11 @@ io.on("connection", (socket) => {
         throw new Error("Operator tokens must include a gate assignment");
       }
 
+      // A reconnect can reuse a socket object; leave any stale role rooms so a
+      // changed token can never keep access granted to the previous identity.
+      for (const room of socket.rooms) {
+        if (room !== socket.id) socket.leave(room);
+      }
       socket.data.user = user;
       socket.join("authenticated");
       socket.join(socketRoomFor(user));
@@ -466,8 +521,28 @@ io.on("connection", (socket) => {
       acknowledge({ ok: false, error });
     }
   });
-
-  socket.on("disconnect", () => {});
 });
 
-module.exports = { app, server, io, sendLotSnapshot };
+// Unknown endpoints and parser failures use the same error envelope as the
+// services (SAD 4.4) instead of Express' default HTML response.
+app.use((_req, res) => {
+  res.status(404).json({ error: { code: "NOT_FOUND", message: "Route not found" } });
+});
+
+app.use((error, _req, res, _next) => {
+  if (error?.type === "entity.parse.failed" || error instanceof SyntaxError) {
+    return res.status(400).json({
+      error: { code: "INVALID_JSON", message: "The request body must be valid JSON" },
+    });
+  }
+  if (error?.type === "entity.too.large") {
+    return res.status(413).json({
+      error: { code: "PAYLOAD_TOO_LARGE", message: "The request body is too large" },
+    });
+  }
+  return res.status(500).json({
+    error: { code: "INTERNAL_ERROR", message: "An unexpected server error occurred" },
+  });
+});
+
+module.exports = { app, server, io, sendLotSnapshot, buildLotSnapshot };

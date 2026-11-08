@@ -33,7 +33,13 @@ export function OccupancyChart({ history }) {
             <XAxis dataKey="label" fontSize={12} />
             <YAxis domain={[0, 100]} unit="%" width={44} fontSize={12} />
             <Tooltip formatter={(value) => `${value}%`} />
-            <Line type="monotone" dataKey="value" name="Occupancy" stroke="#c93b3b" dot={false} />
+            <Line
+              type="monotone"
+              dataKey="value"
+              name="Occupancy"
+              stroke="#c93b3b"
+              dot={false}
+            />
           </LineChart>
         </ResponsiveContainer>
       )}

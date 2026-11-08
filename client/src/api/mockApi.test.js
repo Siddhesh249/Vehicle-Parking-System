@@ -61,4 +61,41 @@ describe("mock API (SAD 4.3 shapes)", () => {
     expect(receipt.breakdown.lostTicketPenalty).toBe(50);
     expect(receipt.fare).toBe(85); // 4h parked: 2h at 10/h + 1h at 15/h, plus 50 penalty
   });
+
+  test("supports the admin fare and spot configuration contract", async () => {
+    const api = createMockApi({ delayMs: 0 });
+
+    expect(await api.getSpotConfig()).toEqual({ "2W": 6, "4W": 10 });
+    await expect(api.updateSpotCount({ zone: "2W", count: 4 })).resolves.toEqual({
+      updated: true,
+      zone: "2W",
+      count: 4,
+    });
+    expect(await api.getSpotConfig()).toEqual({ "2W": 4, "4W": 10 });
+
+    await api.updateFareTiers({
+      vehicleType: "4W",
+      firstHourFree: false,
+      tiers: [{ afterHours: 0, rate: 12 }],
+      lostTicketPenalty: 0,
+      overstayPenalty: 0,
+    });
+    expect((await api.getFareConfig())["4W"]).toEqual({
+      firstHourFree: false,
+      tiers: [{ afterHours: 0, rate: 12 }],
+      lostTicketPenalty: 0,
+      overstayPenalty: 0,
+    });
+  });
+
+  test("lists vehicles whose demo duration already crossed the overstay threshold", async () => {
+    const api = createMockApi({ delayMs: 0 });
+    const overstays = await api.getOverstays();
+
+    expect(overstays).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ ticketId: "TKT-DEMO-002", autoFlagged: true }),
+      ]),
+    );
+  });
 });

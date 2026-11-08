@@ -8,16 +8,25 @@ import AdminConsole from "./AdminConsole.jsx";
 describe("EntryConsole", () => {
   test("submits plate and vehicle type with its assigned gate, then shows ticket and spot from the API response", async () => {
     const user = userEvent.setup();
-    const api = { createEntry: jest.fn().mockResolvedValue({
-      ticketId: "TKT-20261018-001", spotId: "spot-1", zone: "4W", qrPayload: "TKT-20261018-001",
-    }) };
+    const api = {
+      createEntry: jest.fn().mockResolvedValue({
+        ticketId: "TKT-20261018-001",
+        spotId: "spot-1",
+        zone: "4W",
+        qrPayload: "TKT-20261018-001",
+      }),
+    };
     render(<EntryConsole gateId="Entry-1" api={api} />);
 
     await user.type(screen.getByLabelText(/plate number/i), "KA01AB1234");
     await user.selectOptions(screen.getByLabelText(/vehicle type/i), "4W");
     await user.click(screen.getByRole("button", { name: /register vehicle/i }));
 
-    expect(api.createEntry).toHaveBeenCalledWith({ plateNumber: "KA01AB1234", vehicleType: "4W", gateId: "Entry-1" });
+    expect(api.createEntry).toHaveBeenCalledWith({
+      plateNumber: "KA01AB1234",
+      vehicleType: "4W",
+      gateId: "Entry-1",
+    });
     expect(await screen.findByText("TKT-20261018-001")).toBeInTheDocument();
     expect(screen.getByText(/spot-1/)).toBeInTheDocument();
     expect(screen.getByText(/4w zone/i)).toBeInTheDocument();
@@ -25,7 +34,13 @@ describe("EntryConsole", () => {
 
   test("shows the lot-full response and allows the operator to correct the form", async () => {
     const user = userEvent.setup();
-    const api = { createEntry: jest.fn().mockRejectedValue({ status: 409, code: "LOT_FULL", message: "No 2W spots available" }) };
+    const api = {
+      createEntry: jest.fn().mockRejectedValue({
+        status: 409,
+        code: "LOT_FULL",
+        message: "No 2W spots available",
+      }),
+    };
     render(<EntryConsole gateId="Entry-2" api={api} />);
 
     await user.type(screen.getByLabelText(/plate number/i), "KA02CD5678");
@@ -41,8 +56,19 @@ describe("ExitConsole", () => {
   test("looks up by ticket, then displays the entry and computed fare response", async () => {
     const user = userEvent.setup();
     const api = {
-      lookupTicket: jest.fn().mockResolvedValue({ ticketId: "TKT-1", plateNumber: "KA01AB1234", vehicleType: "4W", entryTimestamp: "2026-10-18T10:00:00.000Z" }),
-      processExit: jest.fn().mockResolvedValue({ fare: 30, durationSeconds: 5400, penaltyApplied: false, breakdown: { baseFare: 30 }, receiptId: "RCP-1" }),
+      lookupTicket: jest.fn().mockResolvedValue({
+        ticketId: "TKT-1",
+        plateNumber: "KA01AB1234",
+        vehicleType: "4W",
+        entryTimestamp: "2026-10-18T10:00:00.000Z",
+      }),
+      processExit: jest.fn().mockResolvedValue({
+        fare: 30,
+        durationSeconds: 5400,
+        penaltyApplied: false,
+        breakdown: { baseFare: 30 },
+        receiptId: "RCP-1",
+      }),
     };
     render(<ExitConsole gateId="Exit-1" api={api} />);
 
@@ -53,7 +79,7 @@ describe("ExitConsole", () => {
 
     expect(api.lookupTicket).toHaveBeenCalledWith("TKT-1");
     expect(api.processExit).toHaveBeenCalledWith({ ticketId: "TKT-1", gateId: "Exit-1" });
-    expect(await screen.findByText(/₹?30(?:\.00)?/)).toBeInTheDocument();
+    expect(await screen.findByText(/base fare ₹30\.00/i)).toBeInTheDocument();
     expect(screen.getByText(/5400 seconds|1 hour 30 minutes/i)).toBeInTheDocument();
     expect(screen.getByText("RCP-1")).toBeInTheDocument();
   });
@@ -61,8 +87,17 @@ describe("ExitConsole", () => {
   test("supports lost-ticket search by plate and identifies the penalty in the receipt", async () => {
     const user = userEvent.setup();
     const api = {
-      searchPlate: jest.fn().mockResolvedValue([{ ticketId: "TKT-2", plateNumber: "KA02CD5678", vehicleType: "2W" }]),
-      processExit: jest.fn().mockResolvedValue({ fare: 75, durationSeconds: 7200, penaltyApplied: true, receiptId: "RCP-2" }),
+      searchPlate: jest
+        .fn()
+        .mockResolvedValue([
+          { ticketId: "TKT-2", plateNumber: "KA02CD5678", vehicleType: "2W" },
+        ]),
+      processExit: jest.fn().mockResolvedValue({
+        fare: 75,
+        durationSeconds: 7200,
+        penaltyApplied: true,
+        receiptId: "RCP-2",
+      }),
     };
     render(<ExitConsole gateId="Exit-2" api={api} />);
 
@@ -72,14 +107,21 @@ describe("ExitConsole", () => {
     await user.click(screen.getByRole("button", { name: /confirm exit/i }));
 
     expect(api.searchPlate).toHaveBeenCalledWith("KA02CD5678");
-    expect(api.processExit).toHaveBeenCalledWith({ plateNumber: "KA02CD5678", gateId: "Exit-2" });
+    expect(api.processExit).toHaveBeenCalledWith({
+      plateNumber: "KA02CD5678",
+      gateId: "Exit-2",
+    });
     expect(await screen.findByText(/lost ticket|penalty applied/i)).toBeInTheDocument();
   });
 
   test("notifies the admin about an overstay from the found vehicle", async () => {
     const user = userEvent.setup();
     const api = {
-      lookupTicket: jest.fn().mockResolvedValue({ ticketId: "TKT-OVER", plateNumber: "KA03OV1234", vehicleType: "4W" }),
+      lookupTicket: jest.fn().mockResolvedValue({
+        ticketId: "TKT-OVER",
+        plateNumber: "KA03OV1234",
+        vehicleType: "4W",
+      }),
       notifyOverstay: jest.fn().mockResolvedValue({ notificationId: "notice-1" }),
     };
     render(<ExitConsole gateId="Exit-1" api={api} />);
@@ -89,30 +131,55 @@ describe("ExitConsole", () => {
     await screen.findByText("KA03OV1234");
     await user.click(screen.getByRole("button", { name: /notify admin of overstay/i }));
 
-    expect(api.notifyOverstay).toHaveBeenCalledWith({ vehicleId: "TKT-OVER", gateId: "Exit-1" });
+    expect(api.notifyOverstay).toHaveBeenCalledWith({
+      vehicleId: "TKT-OVER",
+      gateId: "Exit-1",
+    });
     expect(await screen.findByRole("status")).toHaveTextContent(/notification sent/i);
   });
 
   test("shows lookup misses and prevents exit confirmation until a vehicle is found", async () => {
     const user = userEvent.setup();
-    const api = { lookupTicket: jest.fn().mockRejectedValue({ status: 404, message: "Vehicle not found" }) };
+    const api = {
+      lookupTicket: jest
+        .fn()
+        .mockRejectedValue({ status: 404, message: "Vehicle not found" }),
+    };
     render(<ExitConsole gateId="Exit-1" api={api} />);
 
     await user.type(screen.getByLabelText(/ticket id/i), "missing");
     await user.click(screen.getByRole("button", { name: /look up ticket/i }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/vehicle not found/i);
-    expect(screen.queryByRole("button", { name: /confirm exit/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /confirm exit/i }),
+    ).not.toBeInTheDocument();
   });
 });
 
 describe("AdminConsole", () => {
   test("renders mocked occupancy, revenue, transactions, and audit entries", async () => {
     const api = {
-      getOccupancy: jest.fn().mockResolvedValue({ totalPct: 50, byZone: { "2W": { occupied: 1, total: 2 }, "4W": { occupied: 2, total: 4 } }, history: [] }),
-      getRevenue: jest.fn().mockResolvedValue({ total: 1250, byDay: [], byZone: { "2W": 250, "4W": 1000 } }),
-      getTransactions: jest.fn().mockResolvedValue({ records: [{ ticketId: "TKT-1", plateNumber: "KA01AB1234", status: "active" }] }),
-      getAuditLog: jest.fn().mockResolvedValue({ entries: [{ action: "VEHICLE_ENTRY", actorRole: "operator", createdAt: "2026-10-18T10:00:00.000Z" }] }),
+      getOccupancy: jest.fn().mockResolvedValue({
+        totalPct: 50,
+        byZone: { "2W": { occupied: 1, total: 2 }, "4W": { occupied: 2, total: 4 } },
+        history: [],
+      }),
+      getRevenue: jest
+        .fn()
+        .mockResolvedValue({ total: 1250, byDay: [], byZone: { "2W": 250, "4W": 1000 } }),
+      getTransactions: jest.fn().mockResolvedValue({
+        records: [{ ticketId: "TKT-1", plateNumber: "KA01AB1234", status: "active" }],
+      }),
+      getAuditLog: jest.fn().mockResolvedValue({
+        entries: [
+          {
+            action: "VEHICLE_ENTRY",
+            actorRole: "operator",
+            createdAt: "2026-10-18T10:00:00.000Z",
+          },
+        ],
+      }),
     };
     render(<AdminConsole api={api} />);
 

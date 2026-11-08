@@ -76,7 +76,11 @@ export function createHttpApi({
     getLotStatus: () => request("/lot/status"),
     getSimulationStatus: () => request("/dev/simulate/status", { auth: false }),
     startSimulation: ({ ratePerMinute }) =>
-      request("/dev/simulate/start", { method: "POST", body: { ratePerMinute }, auth: false }),
+      request("/dev/simulate/start", {
+        method: "POST",
+        body: { ratePerMinute },
+        auth: false,
+      }),
     stopSimulation: () => request("/dev/simulate/stop", { method: "POST", auth: false }),
     setSimulationFareTiers: (config) =>
       request("/dev/simulate/fare-tiers", { method: "PUT", body: config, auth: false }),
@@ -93,9 +97,26 @@ export function createHttpApi({
 
     getOccupancy: () => request("/admin/analytics/occupancy"),
     getRevenue: () => request("/admin/analytics/revenue"),
-    getTransactions: async ({ plate } = {}) =>
-      asList(await request("/admin/transactions", { query: { plate } }), "records"),
-    getAuditLog: async () => asList(await request("/admin/audit-log"), "entries"),
+    getTransactions: async ({ plate, from, to, gate } = {}) =>
+      asList(
+        await request("/admin/transactions", { query: { plate, from, to, gate } }),
+        "records",
+      ),
+    getAuditLog: async ({ action, actor, from, to } = {}) =>
+      asList(
+        await request("/admin/audit-log", { query: { action, actor, from, to } }),
+        "entries",
+      ),
+    getOverstays: async () => {
+      const payload = await request("/admin/overstays");
+      return payload?.overstays ?? payload ?? [];
+    },
+    getFareConfig: () => request("/admin/config/fare-tiers"),
+    updateFareTiers: (config) =>
+      request("/admin/config/fare-tiers", { method: "PUT", body: config }),
+    getSpotConfig: () => request("/admin/config/spots"),
+    updateSpotCount: ({ zone, count }) =>
+      request("/admin/config/spots", { method: "PUT", body: { zone, count } }),
     forceRelease: (vehicleId) =>
       request(`/admin/vehicles/${encodeURIComponent(vehicleId)}/force-release`, {
         method: "POST",

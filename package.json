@@ -2,12 +2,18 @@
   "name": "vehicle-parking-system",
   "private": true,
   "scripts": {
+    "start": "bash run.sh",
+    "dev": "bash run.sh",
+    "check": "bash test.sh",
     "test": "npm run test:server && npm run test:client",
+    "test:all": "bash test.sh",
     "test:server": "npm test --prefix server",
     "test:client": "npm test --prefix client",
+    "test:load": "k6 run loadtest/entry-concurrency.js",
+    "seed": "npm run seed --prefix server",
     "lint": "npm run lint --prefix client",
-    "format": "prettier --write .prettierrc.json package.json client/eslint.config.js client/src/App.css client/src/App.jsx client/src/App.test.jsx client/src/index.css server/app.js server/index.js server/jest.config.cjs server/models/FareTierConfig.js server/models/Spot.js server/models/Transaction.js server/models/User.js server/models/Vehicle.js server/package.json server/services/loginService.js server/tests/auth.integration.test.js server/tests/loginService.unit.test.js server/tests/runJest.cjs server/tests/schemas.unit.test.js server/tests/setupEnv.cjs server/tests/testDatabase.cjs server/utils/jwtUtils.js server/utils/passwordUtils.js",
-    "format:check": "prettier --check .prettierrc.json package.json client/eslint.config.js client/src/App.css client/src/App.jsx client/src/App.test.jsx client/src/index.css server/app.js server/index.js server/jest.config.cjs server/models/FareTierConfig.js server/models/Spot.js server/models/Transaction.js server/models/User.js server/models/Vehicle.js server/package.json server/services/loginService.js server/tests/auth.integration.test.js server/tests/loginService.unit.test.js server/tests/runJest.cjs server/tests/schemas.unit.test.js server/tests/setupEnv.cjs server/tests/testDatabase.cjs server/utils/jwtUtils.js server/utils/passwordUtils.js"
+    "format": "prettier --write \"*.{json,md,yml,yaml}\" \"client/**/*.{js,jsx,cjs,css,json}\" \"server/**/*.{js,cjs,json}\" \"loadtest/**/*.js\" \"DOCS/**/*.md\" \".github/**/*.{yml,yaml}\"",
+    "format:check": "prettier --check \"*.{json,md,yml,yaml}\" \"client/**/*.{js,jsx,cjs,css,json}\" \"server/**/*.{js,cjs,json}\" \"loadtest/**/*.js\" \"DOCS/**/*.md\" \".github/**/*.{yml,yaml}\""
   },
   "devDependencies": {
     "prettier": "^3.6.2"
