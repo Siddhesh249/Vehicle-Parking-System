@@ -5,9 +5,14 @@ const Spot = require("../models/Spot");
 const { calculateFareDetails } = require("./fareService");
 const { getFareConfig } = require("./fareConfigService");
 const { writeAuditEntry } = require("./auditService");
+const { getOverstayThresholdHours } = require("./overstayConfigService");
+const {
+  realMillisecondsForSimulatedHours,
+  simulatedHoursBetween,
+  simulatedSecondsBetween,
+} = require("../utils/simulatedTime");
 
 const OBJECT_ID_PATTERN = /^[0-9a-f]{24}$/i;
-const DEFAULT_OVERSTAY_THRESHOLD_MINUTES = 120;
 
 function serviceError(message, code, statusCode) {
   const error = new Error(message);
@@ -36,17 +41,8 @@ async function findActiveTransaction(vehicleId) {
   return transaction;
 }
 
-function secondsBetween(start, end) {
-  return Math.max(0, (new Date(end).getTime() - new Date(start).getTime()) / 1000);
-}
-
-function overstayThresholdMinutes(value = process.env.OVERSTAY_THRESHOLD_MINUTES) {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_OVERSTAY_THRESHOLD_MINUTES;
-  return parsed;
-}
-
-function alertFor(transaction, now) {
+function alertFor(transaction, now, thresholdHours) {
+  const durationHours = simulatedHoursBetween(transaction.entryTimestamp, now);
   return {
     vehicleId: String(transaction._id),
     ticketId: transaction.ticketId,
@@ -54,7 +50,9 @@ function alertFor(transaction, now) {
     vehicleType: transaction.vehicleType,
     gateId: transaction.entryGateId,
     entryTimestamp: transaction.entryTimestamp,
-    duration: secondsBetween(transaction.entryTimestamp, now),
+    duration: durationHours * 3600,
+    durationHours,
+    isOverstay: Boolean(transaction.isOverstay) || durationHours >= thresholdHours,
   };
 }
 
@@ -63,18 +61,21 @@ function alertFor(transaction, now) {
  * threshold, or was explicitly flagged by an operator (VPS-F-040). This is a
  * read-only view used by the admin dashboard and its periodic refresh.
  */
-async function listOverstays({
-  now = new Date(),
-  thresholdMinutes = overstayThresholdMinutes(),
-} = {}) {
-  const cutoff = new Date(now.getTime() - thresholdMinutes * 60 * 1000);
+async function listOverstays({ now = new Date(), thresholdHours } = {}) {
+  const effectiveThreshold =
+    thresholdHours === undefined
+      ? await getOverstayThresholdHours()
+      : Number(thresholdHours);
+  const cutoff = new Date(
+    now.getTime() - realMillisecondsForSimulatedHours(effectiveThreshold),
+  );
   const transactions = await Transaction.find({
     status: "active",
     $or: [{ isOverstay: true }, { entryTimestamp: { $lte: cutoff } }],
   }).sort({ entryTimestamp: 1 });
 
   return transactions.map((transaction) => ({
-    ...alertFor(transaction, now),
+    ...alertFor(transaction, now, effectiveThreshold),
     autoFlagged: !transaction.isOverstay,
   }));
 }
@@ -84,11 +85,14 @@ async function listOverstays({
  * Called by the server's background scanner; returning only the newly flagged
  * rows keeps Socket.io notifications from repeating on every scan.
  */
-async function scanOverstays({
-  now = new Date(),
-  thresholdMinutes = overstayThresholdMinutes(),
-} = {}) {
-  const cutoff = new Date(now.getTime() - thresholdMinutes * 60 * 1000);
+async function scanOverstays({ now = new Date(), thresholdHours } = {}) {
+  const effectiveThreshold =
+    thresholdHours === undefined
+      ? await getOverstayThresholdHours()
+      : Number(thresholdHours);
+  const cutoff = new Date(
+    now.getTime() - realMillisecondsForSimulatedHours(effectiveThreshold),
+  );
   const candidates = await Transaction.find({
     status: "active",
     isOverstay: false,
@@ -102,7 +106,7 @@ async function scanOverstays({
       { $set: { isOverstay: true } },
       { returnDocument: "after" },
     );
-    if (flagged) newlyFlagged.push(alertFor(flagged, now));
+    if (flagged) newlyFlagged.push(alertFor(flagged, now, effectiveThreshold));
   }
   return newlyFlagged;
 }
@@ -116,7 +120,8 @@ async function notifyOverstay({ vehicleId, gateId, operator, now = new Date() })
     { $set: { isOverstay: true } },
   );
 
-  const durationSeconds = secondsBetween(transaction.entryTimestamp, now);
+  const durationSeconds = simulatedSecondsBetween(transaction.entryTimestamp, now);
+  const durationHours = durationSeconds / 3600;
   const entry = await writeAuditEntry({
     action: "OVERSTAY_FLAGGED",
     actorId: operator.userId,
@@ -127,6 +132,7 @@ async function notifyOverstay({ vehicleId, gateId, operator, now = new Date() })
       plateNumber: transaction.plateNumber,
       gateId,
       durationSeconds,
+      durationHours,
     },
   });
 
@@ -137,6 +143,7 @@ async function notifyOverstay({ vehicleId, gateId, operator, now = new Date() })
     plateNumber: transaction.plateNumber,
     gateId,
     durationSeconds,
+    durationHours,
   };
 }
 
@@ -148,7 +155,8 @@ async function notifyOverstay({ vehicleId, gateId, operator, now = new Date() })
 async function forceRelease({ vehicleId, admin, now = new Date() }) {
   const transaction = await findActiveTransaction(vehicleId);
 
-  const durationSeconds = secondsBetween(transaction.entryTimestamp, now);
+  const durationSeconds = simulatedSecondsBetween(transaction.entryTimestamp, now);
+  const durationHours = durationSeconds / 3600;
   const fareConfig = await getFareConfig(transaction.vehicleType);
   const fareDetails = calculateFareDetails(
     transaction.entryTimestamp,
@@ -203,6 +211,7 @@ async function forceRelease({ vehicleId, admin, now = new Date() }) {
       ticketId: settled.ticketId,
       spotId: String(settled.spotId),
       fare: fareDetails.total,
+      durationHours,
     },
   });
 
@@ -212,6 +221,7 @@ async function forceRelease({ vehicleId, admin, now = new Date() }) {
     ticketId: settled.ticketId,
     plateNumber: settled.plateNumber,
     durationSeconds,
+    durationHours,
     fare: fareDetails.total,
     breakdown: {
       baseFare: fareDetails.baseFare,
@@ -220,11 +230,4 @@ async function forceRelease({ vehicleId, admin, now = new Date() }) {
   };
 }
 
-module.exports = {
-  notifyOverstay,
-  forceRelease,
-  listOverstays,
-  scanOverstays,
-  overstayThresholdMinutes,
-  DEFAULT_OVERSTAY_THRESHOLD_MINUTES,
-};
+module.exports = { notifyOverstay, forceRelease, listOverstays, scanOverstays };

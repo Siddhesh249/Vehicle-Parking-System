@@ -126,6 +126,13 @@ describe("S3-T4 — real API transport", () => {
       "/api/admin/config/fare-tiers",
     ],
     ["updateSpotCount", [{ zone: "2W", count: 12 }], "PUT", "/api/admin/config/spots"],
+    ["getOverstayConfig", [], "GET", "/api/admin/config/overstay"],
+    [
+      "updateOverstayConfig",
+      [{ thresholdHours: 8 }],
+      "PUT",
+      "/api/admin/config/overstay",
+    ],
     [
       "forceRelease",
       ["ticket 1/2"],

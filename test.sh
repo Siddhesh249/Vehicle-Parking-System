@@ -93,7 +93,10 @@ NODE
   log "Seeding the load-test database"
   (
     cd server
-    MONGO_URI="$LOAD_MONGO_URI" SEED_PASSWORD=password123 node seed.js
+    MONGO_URI="$LOAD_MONGO_URI" \
+      SEED_PASSWORD=password123 \
+      SEED_DEMO_DATA=false \
+      node seed.js
   )
 
   if (ss -ltn 2>/dev/null || true) | awk '{print $4}' | grep -qE "[:.]${LOAD_PORT}$"; then

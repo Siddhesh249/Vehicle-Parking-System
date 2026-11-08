@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import usePanel from "../hooks/usePanel.js";
 import {
   errorMessage,
-  formatDuration,
+  formatHours,
   formatMoney,
   formatTimestamp,
 } from "../utils/format.js";
@@ -109,7 +109,7 @@ export default function AdminConsole({ api, realtime }) {
   }, [manualAlerts, overstays.status, overstays.data, releasedAlertIds]);
 
   useEffect(() => {
-    const timer = setInterval(refreshOverstays, 30000);
+    const timer = setInterval(refreshOverstays, 5000);
     return () => clearInterval(timer);
   }, [refreshOverstays]);
 
@@ -180,7 +180,9 @@ export default function AdminConsole({ api, realtime }) {
                     {alert.plateNumber ?? alert.ticketId ?? alert.vehicleId}
                   </strong>
                   <span className="field-hint">
-                    {`${alert.gateId ?? "Gate"} · parked ${formatDuration(alert.duration ?? 0)}`}
+                    {`${alert.gateId ?? "Gate"} · parked ${formatHours(
+                      alert.durationHours ?? (alert.duration ?? 0) / 3600,
+                    )}`}
                   </span>
                 </div>
                 <button
@@ -342,7 +344,9 @@ export default function AdminConsole({ api, realtime }) {
       {typeof api.getFareConfig === "function" &&
         typeof api.updateFareTiers === "function" &&
         typeof api.getSpotConfig === "function" &&
-        typeof api.updateSpotCount === "function" && (
+        typeof api.updateSpotCount === "function" &&
+        typeof api.getOverstayConfig === "function" &&
+        typeof api.updateOverstayConfig === "function" && (
           <AdminConfig api={api} onChanged={refreshAll} />
         )}
     </div>

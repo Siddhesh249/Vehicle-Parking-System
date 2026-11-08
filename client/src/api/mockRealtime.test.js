@@ -8,7 +8,17 @@ describe("mock realtime (same interface as the Socket.io connection)", () => {
 
     expect(handlers.onStatus).toHaveBeenCalledWith("connected");
     expect(handlers.onSnapshot.mock.calls[0][0]).toEqual(
-      expect.arrayContaining([{ id: "4W-01", zone: "4W", status: "reserved" }]),
+      expect.objectContaining({
+        spots: expect.arrayContaining([
+          expect.objectContaining({
+            id: "4W-01",
+            zone: "4W",
+            status: "reserved",
+          }),
+        ]),
+        timeScale: { realSecondsPerHour: 5, hoursPerRealSecond: 0.2 },
+        overstayThresholdHours: 6,
+      }),
     );
 
     const ticket = await api.createEntry({

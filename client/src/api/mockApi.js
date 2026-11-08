@@ -24,7 +24,12 @@ const DEFAULT_FARE_CONFIG = {
   },
 };
 const HOUR_MS = 3600 * 1000;
-const DEFAULT_OVERSTAY_THRESHOLD_SECONDS = 2 * 60 * 60;
+const REAL_SECONDS_PER_SIMULATED_HOUR = 5;
+const SIMULATED_HOUR_MS = REAL_SECONDS_PER_SIMULATED_HOUR * 1000;
+const DEFAULT_OVERSTAY_THRESHOLD_HOURS = 6;
+
+const simulatedHours = (startMs, endMs = Date.now()) =>
+  Math.max(0, (endMs - startMs) / 1000 / REAL_SECONDS_PER_SIMULATED_HOUR);
 
 const fail = (status, message, code) => Promise.reject({ status, code, message });
 const round2 = (n) => Math.round(n * 100) / 100;
@@ -124,11 +129,23 @@ export function createMockApi({ delayMs = 150 } = {}) {
   let receiptSeq = 0;
   let simulationRunning = false;
   let simulationRate = 0;
+  let overstayThresholdHours = DEFAULT_OVERSTAY_THRESHOLD_HOURS;
 
-  // Same-tab stand-in for the Socket.io spot:update broadcast.
+  // Same-tab stand-in for the Socket.io spot:update / lot:snapshot broadcasts.
   const listeners = new Set();
+  const snapshotListeners = new Set();
   const emit = (spotId, status) =>
     listeners.forEach((listener) => listener({ spotId, status }));
+  const snapshotPayload = () => ({
+    spots: spots.map(spotView),
+    timeScale: {
+      realSecondsPerHour: REAL_SECONDS_PER_SIMULATED_HOUR,
+      hoursPerRealSecond: 1 / REAL_SECONDS_PER_SIMULATED_HOUR,
+    },
+    overstayThresholdHours,
+  });
+  const emitSnapshot = () =>
+    snapshotListeners.forEach((listener) => listener(snapshotPayload()));
 
   const log = (action, actorRole = "operator") =>
     audit.unshift({ action, actorRole, createdAt: new Date(now()).toISOString() });
@@ -158,15 +175,22 @@ export function createMockApi({ delayMs = 150 } = {}) {
     ticketId: "TKT-DEMO-001",
     plateNumber: "KA01AB1234",
     vehicleType: "4W",
-    entryTimestamp: new Date(now() - 2.5 * HOUR_MS).toISOString(),
+    entryTimestamp: new Date(now() - 2.5 * SIMULATED_HOUR_MS).toISOString(),
     gateId: "Entry-1",
   });
   park({
     ticketId: "TKT-DEMO-002",
     plateNumber: "KA02CD5678",
     vehicleType: "2W",
-    entryTimestamp: new Date(now() - 4 * HOUR_MS).toISOString(),
+    entryTimestamp: new Date(now() - 4 * SIMULATED_HOUR_MS).toISOString(),
     gateId: "Entry-2",
+  });
+  park({
+    ticketId: "TKT-DEMO-003",
+    plateNumber: "KA03OV9012",
+    vehicleType: "4W",
+    entryTimestamp: new Date(now() - 7.5 * SIMULATED_HOUR_MS).toISOString(),
+    gateId: "Entry-1",
   });
 
   const active = () => records.filter((r) => r.status === "active");
@@ -176,6 +200,37 @@ export function createMockApi({ delayMs = 150 } = {}) {
     vehicleType,
     entryTimestamp,
   });
+
+  const maxTierHours = () =>
+    Math.max(
+      ...["2W", "4W"].flatMap((zone) =>
+        fareConfig[zone].tiers.map((tier) => Number(tier.afterHours) || 0),
+      ),
+    );
+
+  const spotView = (spot) => {
+    const record = active().find((entry) => entry.spotId === spot.id);
+    const durationHours = record
+      ? simulatedHours(new Date(record.entryTimestamp).getTime())
+      : null;
+    return {
+      id: spot.id,
+      zone: spot.zone,
+      status: spot.status,
+      vehicle: record
+        ? {
+            transactionId: record.ticketId,
+            ticketId: record.ticketId,
+            plateNumber: record.plateNumber,
+            vehicleType: record.vehicleType,
+            entryTimestamp: record.entryTimestamp,
+            durationHours,
+            isOverstay:
+              Boolean(record.isOverstay) || durationHours >= overstayThresholdHours,
+          }
+        : null,
+    };
+  };
 
   const lotStatus = () => {
     const byZone = {};
@@ -201,25 +256,25 @@ export function createMockApi({ delayMs = 150 } = {}) {
 
   const overstayRows = () =>
     active()
-      .filter(
-        (record) =>
-          record.isOverstay ||
-          (now() - new Date(record.entryTimestamp).getTime()) / 1000 >=
-            DEFAULT_OVERSTAY_THRESHOLD_SECONDS,
-      )
-      .map((record) => ({
-        vehicleId: record.ticketId,
-        ticketId: record.ticketId,
-        plateNumber: record.plateNumber,
-        vehicleType: record.vehicleType,
-        gateId: record.entryGateId,
-        entryTimestamp: record.entryTimestamp,
-        duration: Math.max(
-          0,
-          Math.round((now() - new Date(record.entryTimestamp).getTime()) / 1000),
-        ),
-        autoFlagged: !record.isOverstay,
-      }));
+      .filter((record) => {
+        const hours = simulatedHours(new Date(record.entryTimestamp).getTime());
+        return record.isOverstay || hours >= overstayThresholdHours;
+      })
+      .map((record) => {
+        const durationHours = simulatedHours(new Date(record.entryTimestamp).getTime());
+        return {
+          vehicleId: record.ticketId,
+          ticketId: record.ticketId,
+          plateNumber: record.plateNumber,
+          vehicleType: record.vehicleType,
+          gateId: record.entryGateId,
+          entryTimestamp: record.entryTimestamp,
+          duration: durationHours * 3600,
+          durationHours,
+          isOverstay: true,
+          autoFlagged: !record.isOverstay,
+        };
+      });
 
   return {
     async getSimulationStatus() {
@@ -283,8 +338,13 @@ export function createMockApi({ delayMs = 150 } = {}) {
       await wait();
       const { totalPct, byZone, occupied, total } = lotStatus();
       return {
-        spots: spots.map(({ id, zone, status }) => ({ id, zone, status })),
+        spots: spots.map(spotView),
         occupancy: { totalPct, occupied, totalSpots: total, byZone },
+        timeScale: {
+          realSecondsPerHour: REAL_SECONDS_PER_SIMULATED_HOUR,
+          hoursPerRealSecond: 1 / REAL_SECONDS_PER_SIMULATED_HOUR,
+        },
+        overstayThresholdHours,
       };
     },
 
@@ -310,6 +370,7 @@ export function createMockApi({ delayMs = 150 } = {}) {
       if (!record) return fail(409, `No ${vehicleType} spots available`, "LOT_FULL");
       log("VEHICLE_ENTRY");
       emit(record.spotId, "reserved");
+      emitSnapshot();
       return { ticketId, spotId: record.spotId, zone: record.zone, qrPayload: ticketId };
     },
 
@@ -339,10 +400,8 @@ export function createMockApi({ delayMs = 150 } = {}) {
               .toUpperCase(),
       );
       if (!record) return fail(404, "Vehicle not found");
-      const durationSeconds = Math.max(
-        0,
-        Math.round((now() - new Date(record.entryTimestamp).getTime()) / 1000),
-      );
+      const durationSeconds =
+        simulatedHours(new Date(record.entryTimestamp).getTime()) * 3600;
       // Mirrors the backend's first-hour-free, tiered, exact-duration policy.
       const baseFare = calculateBaseFare(durationSeconds, record.vehicleType, fareConfig);
       const penaltyApplied = !ticketId;
@@ -358,9 +417,11 @@ export function createMockApi({ delayMs = 150 } = {}) {
       spots.find((s) => s.id === record.spotId).status = "free";
       log("VEHICLE_EXIT");
       emit(record.spotId, "free");
+      emitSnapshot();
       return {
         fare,
         durationSeconds,
+        durationHours: durationSeconds / 3600,
         penaltyApplied,
         breakdown,
         receiptId: `RCP-${String(receiptSeq).padStart(4, "0")}`,
@@ -375,16 +436,17 @@ export function createMockApi({ delayMs = 150 } = {}) {
       if (!record) return fail(404, "Active vehicle not found", "VEHICLE_NOT_FOUND");
       record.isOverstay = true;
       log("OVERSTAY_FLAGGED");
+      const durationSeconds =
+        simulatedHours(new Date(record.entryTimestamp).getTime()) * 3600;
+      emitSnapshot();
       return {
         notificationId: `NOTICE-${record.ticketId}`,
         vehicleId: record.ticketId,
         ticketId: record.ticketId,
         plateNumber: record.plateNumber,
         gateId,
-        durationSeconds: Math.max(
-          0,
-          Math.round((now() - new Date(record.entryTimestamp).getTime()) / 1000),
-        ),
+        durationSeconds,
+        durationHours: durationSeconds / 3600,
       };
     },
 
@@ -427,6 +489,18 @@ export function createMockApi({ delayMs = 150 } = {}) {
       } catch (error) {
         return fail(400, error.message, "INVALID_TIERS");
       }
+      const otherZone = vehicleType === "2W" ? "4W" : "2W";
+      const highestTier = Math.max(
+        ...normalized.map((tier) => tier.afterHours),
+        ...fareConfig[otherZone].tiers.map((tier) => tier.afterHours),
+      );
+      if (highestTier > overstayThresholdHours) {
+        return fail(
+          400,
+          `Overstay threshold (${overstayThresholdHours} hours) must be at least the highest fare tier (${highestTier} hours).`,
+          "INVALID_FARE_TIERS",
+        );
+      }
       fareConfig[vehicleType] = {
         ...fareConfig[vehicleType],
         firstHourFree:
@@ -442,6 +516,38 @@ export function createMockApi({ delayMs = 150 } = {}) {
           : { overstayPenalty: Number(penalties.overstayPenalty) }),
       };
       return { updated: true, vehicleType };
+    },
+
+    async getOverstayConfig() {
+      await wait();
+      return {
+        thresholdHours: overstayThresholdHours,
+        minimumHours: maxTierHours(),
+        defaultHours: Math.max(DEFAULT_OVERSTAY_THRESHOLD_HOURS, maxTierHours()),
+      };
+    },
+
+    async updateOverstayConfig({ thresholdHours }) {
+      await wait();
+      const hours = Number(thresholdHours);
+      const minimumHours = maxTierHours();
+      if (!Number.isFinite(hours) || hours <= 0) {
+        return fail(
+          400,
+          "thresholdHours must be greater than 0",
+          "INVALID_OVERSTAY_THRESHOLD",
+        );
+      }
+      if (hours < minimumHours) {
+        return fail(
+          400,
+          `Overstay threshold cannot be lower than the highest fare tier (${minimumHours} hours)`,
+          "INVALID_OVERSTAY_THRESHOLD",
+        );
+      }
+      overstayThresholdHours = hours;
+      emitSnapshot();
+      return { updated: true, thresholdHours: hours, minimumHours };
     },
 
     async getSpotConfig() {
@@ -489,6 +595,7 @@ export function createMockApi({ delayMs = 150 } = {}) {
           spots.push({ id, zone, status: "free" });
         }
       }
+      emitSnapshot();
       return { updated: true, zone, count: spots.filter((s) => s.zone === zone).length };
     },
 
@@ -541,10 +648,8 @@ export function createMockApi({ delayMs = 150 } = {}) {
       record.status = "completed";
       record.exitTimestamp = new Date(now()).toISOString();
       record.penaltyApplied = true;
-      const durationSeconds = Math.max(
-        0,
-        Math.round((now() - new Date(record.entryTimestamp).getTime()) / 1000),
-      );
+      const durationSeconds =
+        simulatedHours(new Date(record.entryTimestamp).getTime()) * 3600;
       const fareDetails = calculateBaseFare(
         durationSeconds,
         record.vehicleType,
@@ -554,12 +659,14 @@ export function createMockApi({ delayMs = 150 } = {}) {
       spots.find((s) => s.id === record.spotId).status = "free";
       log("SPOT_FORCE_RELEASE", "admin");
       emit(record.spotId, "free");
+      emitSnapshot();
       return {
         spotId: record.spotId,
         penaltyApplied: true,
         ticketId: record.ticketId,
         plateNumber: record.plateNumber,
         durationSeconds,
+        durationHours: durationSeconds / 3600,
         fare: record.fare,
         breakdown: {
           baseFare: fareDetails,
@@ -572,11 +679,14 @@ export function createMockApi({ delayMs = 150 } = {}) {
     realtime: {
       connect({ onSnapshot, onUpdate, onStatus } = {}) {
         const listener = ({ spotId, status }) => onUpdate?.({ spotId, status });
+        const snapshotListener = (payload) => onSnapshot?.(payload);
         listeners.add(listener);
+        snapshotListeners.add(snapshotListener);
         onStatus?.("connected");
-        onSnapshot?.(spots.map(({ id, zone, status }) => ({ id, zone, status })));
+        onSnapshot?.(snapshotPayload());
         return () => {
           listeners.delete(listener);
+          snapshotListeners.delete(snapshotListener);
         };
       },
     },

@@ -50,6 +50,12 @@ The Admin dashboard can edit:
 
 - Fare tiers, first-hour policy, lost-ticket penalty, and overstay penalty per vehicle type.
 - Two-wheeler and four-wheeler spot counts (occupied spots are never deleted).
+- The overstay threshold in hours. It cannot be lower than the highest fare tier.
 
 Changes are persisted by the backend and apply to subsequent exits without a
 frontend or server restart.
+
+The demo clock is compressed: five real seconds represent one billed hour. The
+lot map shows occupied spots in green with a live hours timer. Overstayed spots
+blink red; on an exit console, clicking one notifies the Admin and shows
+“Notification sent to admin.”

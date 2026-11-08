@@ -117,6 +117,12 @@ export function createHttpApi({
     getSpotConfig: () => request("/admin/config/spots"),
     updateSpotCount: ({ zone, count }) =>
       request("/admin/config/spots", { method: "PUT", body: { zone, count } }),
+    getOverstayConfig: () => request("/admin/config/overstay"),
+    updateOverstayConfig: ({ thresholdHours }) =>
+      request("/admin/config/overstay", {
+        method: "PUT",
+        body: { thresholdHours },
+      }),
     forceRelease: (vehicleId) =>
       request(`/admin/vehicles/${encodeURIComponent(vehicleId)}/force-release`, {
         method: "POST",

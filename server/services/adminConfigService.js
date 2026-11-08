@@ -4,6 +4,7 @@ const FareTierConfig = require("../models/FareTierConfig");
 const Spot = require("../models/Spot");
 const { DEFAULT_FARE_CONFIG } = require("./fareService");
 const { writeAuditEntry } = require("./auditService");
+const { assertFareTableRespectsOverstayThreshold } = require("./overstayConfigService");
 
 const ZONES = ["2W", "4W"];
 const MAX_SPOTS_PER_ZONE = 500;
@@ -109,6 +110,11 @@ async function updateFareTiers(
     afterHours,
     ratePerHour: rate,
   }));
+  await assertFareTableRespectsOverstayThreshold({
+    vehicleType,
+    tiers: storedTiers,
+  });
+
   const update = { tiers: storedTiers };
   if (typeof firstHourFree === "boolean") update.firstHourFree = firstHourFree;
   if (lostTicketPenalty !== undefined) update.lostTicketPenalty = lostTicketPenalty;

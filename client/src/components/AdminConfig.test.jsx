@@ -27,8 +27,14 @@ function makeApi() {
   return {
     getFareConfig: jest.fn().mockResolvedValue(fareConfig()),
     getSpotConfig: jest.fn().mockResolvedValue({ "2W": 6, "4W": 10 }),
+    getOverstayConfig: jest
+      .fn()
+      .mockResolvedValue({ thresholdHours: 6, minimumHours: 6 }),
     updateFareTiers: jest.fn().mockResolvedValue({ updated: true }),
     updateSpotCount: jest.fn().mockResolvedValue({ updated: true, zone: "2W", count: 5 }),
+    updateOverstayConfig: jest
+      .fn()
+      .mockResolvedValue({ updated: true, thresholdHours: 8, minimumHours: 6 }),
   };
 }
 
@@ -78,6 +84,31 @@ describe("S4-T4 — admin configuration panel (VPS-F-055, VPS-F-056)", () => {
       expect(api.updateSpotCount).toHaveBeenCalledWith({ zone: "2W", count: 5 }),
     );
     expect(await screen.findByText(/2W capacity is now 5 spots/i)).toBeInTheDocument();
+  });
+
+  test("updates the overstay threshold and rejects one below the highest tier", async () => {
+    const user = userEvent.setup();
+    const api = makeApi();
+    render(<AdminConfig api={api} />);
+
+    const input = await screen.findByLabelText(/hours before a vehicle/i);
+    await user.clear(input);
+    await user.type(input, "5");
+    await user.click(screen.getByRole("button", { name: /update overstay threshold/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/at least 6 hours/i);
+    expect(api.updateOverstayConfig).not.toHaveBeenCalled();
+
+    await user.clear(input);
+    await user.type(input, "8");
+    await user.click(screen.getByRole("button", { name: /update overstay threshold/i }));
+
+    await waitFor(() =>
+      expect(api.updateOverstayConfig).toHaveBeenCalledWith({ thresholdHours: 8 }),
+    );
+    expect(
+      await screen.findByText(/overstay threshold is now 8 hours/i),
+    ).toBeInTheDocument();
   });
 
   test("rejects an invalid tier order before calling the server", async () => {

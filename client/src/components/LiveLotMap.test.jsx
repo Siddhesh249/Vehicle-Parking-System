@@ -41,7 +41,7 @@ describe("S3-T4 — live lot map (VPS-F-021, VPS-F-022)", () => {
 
     act(() => realtime.handlers.onUpdate({ spotId: "2W-02", status: "reserved" }));
 
-    expect(statusOf("2W-02")).toHaveTextContent(/reserved/i);
+    expect(statusOf("2W-02")).toHaveTextContent(/occupied/i);
     expect(statusOf("2W-01")).toHaveTextContent(/free/i);
     expect(statusOf("4W-01")).toHaveTextContent(/free/i);
 
@@ -61,8 +61,8 @@ describe("S3-T4 — live lot map (VPS-F-021, VPS-F-022)", () => {
       ]),
     );
 
-    expect(statusOf("2W-01")).toHaveTextContent(/reserved/i);
-    expect(statusOf("4W-01")).toHaveTextContent(/reserved/i);
+    expect(statusOf("2W-01")).toHaveTextContent(/occupied/i);
+    expect(statusOf("4W-01")).toHaveTextContent(/occupied/i);
     expect(screen.queryByText("2W-02")).not.toBeInTheDocument();
   });
 
@@ -100,8 +100,8 @@ describe("S3-T4 — live lot map (VPS-F-021, VPS-F-022)", () => {
     );
     act(() => socket.trigger("spot:update", { spotId: "4W-01", status: "reserved" }));
 
-    expect(statusOf("2W-01")).toHaveTextContent(/reserved/i);
-    expect(statusOf("4W-01")).toHaveTextContent(/reserved/i);
+    expect(statusOf("2W-01")).toHaveTextContent(/occupied/i);
+    expect(statusOf("4W-01")).toHaveTextContent(/occupied/i);
     expect(socket.emitted.filter(([event]) => event === "identify")).toHaveLength(2);
     expect(socket.listeners["spot:update"]).toHaveLength(1);
     expect(socket.listeners["lot:snapshot"]).toHaveLength(1);

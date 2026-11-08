@@ -6,20 +6,18 @@ const inr = new Intl.NumberFormat("en-IN", {
 
 export const formatMoney = (amount) => inr.format(Number(amount) || 0);
 
-// Human-readable duration while still preserving the exact second count in the
-// text, because fares and receipts are based on the unrounded value.
-export function formatDuration(value) {
-  const totalSeconds = Math.max(0, Math.round(Number(value) || 0));
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
+// The demo clock bills one simulated hour for every few real seconds. Every
+// operator-facing duration is therefore shown directly in hours (e.g. "5.2 hrs").
+export function formatHours(hours) {
+  return `${Math.max(0, Number(hours) || 0).toFixed(1)} hrs`;
+}
 
-  const parts = [];
-  if (hours) parts.push(`${hours} hour${hours === 1 ? "" : "s"}`);
-  if (minutes) parts.push(`${minutes} minute${minutes === 1 ? "" : "s"}`);
-  if (seconds || parts.length === 0)
-    parts.push(`${seconds} second${seconds === 1 ? "" : "s"}`);
-  return parts.join(" ");
+export function formatHoursFromSeconds(seconds) {
+  return formatHours((Number(seconds) || 0) / 3600);
+}
+
+export function formatDuration(value) {
+  return formatHoursFromSeconds(value);
 }
 
 // Fixed UTC output so the display never depends on the viewer's locale/timezone.

@@ -143,16 +143,118 @@ describe("Sprint 4 — admin configuration and overstay feed", () => {
       .expect(409);
   });
 
+  test("reads and updates the overstay threshold above the highest fare tier", async () => {
+    const initial = await request(app)
+      .get("/api/admin/config/overstay")
+      .set(auth(adminToken()))
+      .expect(200);
+
+    expect(initial.body).toEqual(
+      expect.objectContaining({
+        thresholdHours: 6,
+        minimumHours: 6,
+      }),
+    );
+
+    await request(app)
+      .put("/api/admin/config/overstay")
+      .set(auth(adminToken()))
+      .send({ thresholdHours: 5 })
+      .expect(400);
+
+    const updated = await request(app)
+      .put("/api/admin/config/overstay")
+      .set(auth(adminToken()))
+      .send({ thresholdHours: 8 })
+      .expect(200);
+    expect(updated.body).toEqual(
+      expect.objectContaining({ updated: true, thresholdHours: 8 }),
+    );
+  });
+
+  test("rejects a fare table that extends past the overstay threshold", async () => {
+    await request(app)
+      .put("/api/admin/config/overstay")
+      .set(auth(adminToken()))
+      .send({ thresholdHours: 8 })
+      .expect(200);
+
+    await request(app)
+      .put("/api/admin/config/fare-tiers")
+      .set(auth(adminToken()))
+      .send({
+        vehicleType: "4W",
+        tiers: [
+          { afterHours: 1, rate: 20 },
+          { afterHours: 10, rate: 50 },
+        ],
+      })
+      .expect(400);
+
+    await request(app)
+      .put("/api/admin/config/fare-tiers")
+      .set(auth(adminToken()))
+      .send({
+        vehicleType: "4W",
+        tiers: [
+          { afterHours: 1, rate: 20 },
+          { afterHours: 8, rate: 50 },
+        ],
+      })
+      .expect(200);
+  });
+
   test("keeps the new admin reads and overstay feed admin-only", async () => {
     const routes = [
       request(app).get("/api/admin/config/fare-tiers"),
       request(app).get("/api/admin/config/spots"),
+      request(app).get("/api/admin/config/overstay"),
       request(app).get("/api/admin/overstays"),
     ];
     const responses = await Promise.all(
       routes.map((call) => call.set(auth(operatorToken()))),
     );
-    expect(responses.map(({ status }) => status)).toEqual([403, 403, 403]);
+    expect(responses.map(({ status }) => status)).toEqual([403, 403, 403, 403]);
+  });
+
+  test("lot snapshots include live timers, the clock scale and overstay state", async () => {
+    const spot = await Spot.findOne({ spotNumber: "4W-001" });
+    await Spot.updateOne({ _id: spot._id }, { $set: { status: "reserved" } });
+    const transaction = await Transaction.create({
+      ticketId: "TKT-LOT-TIMER",
+      plateNumber: "KA11TIME01",
+      vehicleType: "4W",
+      spotId: spot._id,
+      entryGateId: "Entry-1",
+      entryOperatorId: OPERATOR_ID,
+      entryTimestamp: new Date(Date.now() - 7.5 * 5 * 1000),
+      status: "active",
+    });
+
+    const response = await request(app)
+      .get("/api/lot/status")
+      .set(auth(adminToken()))
+      .expect(200);
+
+    expect(response.body.timeScale).toEqual({
+      realSecondsPerHour: 5,
+      hoursPerRealSecond: 0.2,
+    });
+    expect(response.body.overstayThresholdHours).toBe(6);
+    expect(
+      response.body.spots.find((candidate) => candidate.id === String(spot._id)),
+    ).toEqual(
+      expect.objectContaining({
+        status: "reserved",
+        vehicle: expect.objectContaining({
+          transactionId: String(transaction._id),
+          ticketId: "TKT-LOT-TIMER",
+          plateNumber: "KA11TIME01",
+          durationHours: expect.closeTo(7.5, 1),
+          isOverstay: true,
+        }),
+      }),
+    );
   });
 
   test("lists vehicles that crossed the overstay threshold without an operator action", async () => {

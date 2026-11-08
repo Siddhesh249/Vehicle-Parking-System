@@ -1,18 +1,21 @@
 require("dotenv").config({ quiet: true });
 
 const mongoose = require("mongoose");
-const { server, io } = require("./app");
+const { server, io, buildLotSnapshot } = require("./app");
 const { getMongoUri } = require("./utils/database");
 const { scanOverstays } = require("./services/overstayService");
 
-const OVERSTAY_SCAN_INTERVAL_MS = Number(process.env.OVERSTAY_SCAN_INTERVAL_MS) || 30000;
+const OVERSTAY_SCAN_INTERVAL_MS = Number(process.env.OVERSTAY_SCAN_INTERVAL_MS) || 5000;
 let overstayTimer = null;
 let shuttingDown = false;
 
 async function scanAndBroadcastOverstays() {
   try {
     const alerts = await scanOverstays();
+    if (alerts.length === 0) return;
     for (const alert of alerts) io.to("admin").emit("overstay:alert", alert);
+    const snapshot = await buildLotSnapshot();
+    io.to("authenticated").emit("lot:snapshot", snapshot);
   } catch (error) {
     // A transient scan failure must not take down the API; the next interval
     // tries again and the admin dashboard can still read /api/admin/overstays.

@@ -2,7 +2,7 @@ import { useState } from "react";
 import {
   describeBreakdown,
   errorMessage,
-  formatDuration,
+  formatHours,
   formatMoney,
   formatTimestamp,
   normalizePlate,
@@ -220,7 +220,11 @@ export default function ExitConsole({ gateId, api }) {
             <dt>Fare</dt>
             <dd>{fareText}</dd>
             <dt>Duration</dt>
-            <dd>{formatDuration(receipt.durationSeconds)}</dd>
+            <dd>
+              {formatHours(
+                receipt.durationHours ?? (receipt.durationSeconds ?? 0) / 3600,
+              )}
+            </dd>
             {receipt.penaltyApplied && (
               <>
                 <dt>Penalty</dt>

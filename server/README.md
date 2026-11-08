@@ -41,6 +41,9 @@ and `overstay:alert` (server → the authenticated/admin rooms).
 
 - The default first hour is free.
 - Rates are prorated by elapsed time; fractional hours are not rounded up.
+- The demo clock uses `SIMULATED_HOUR_SECONDS` (default `5`), so five real
+  seconds are billed as one hour. Fares, overstay checks and UI timers all use
+  this same simulated clock.
 - The `2W` and `4W` schedules are independent.
 - `options.lostTicket` and `options.overstay` add the corresponding configured penalties.
 - Invalid dates, exit times before entry, unknown vehicle types, negative rates, and duplicate tier thresholds are rejected.
@@ -52,19 +55,25 @@ tables are configured.
 
 ## Overstay detection
 
-Active transactions are automatically flagged once
-`OVERSTAY_THRESHOLD_MINUTES` (default `120`) has elapsed. `index.js` scans every
-`OVERSTAY_SCAN_INTERVAL_MS` (default `30000`) and broadcasts newly detected
-overstays to the Admin room. Operators can still send an explicit notification.
-Only the Admin can force-release the vehicle; that settlement applies the
-configured overstay penalty.
+The Admin configures the overstay threshold in hours (`GET/PUT
+/api/admin/config/overstay`). It must be at least the highest fare-tier
+threshold, and the same rule is enforced when fare tiers are edited. Active
+transactions are automatically flagged once that simulated duration has
+elapsed. `index.js` scans every `OVERSTAY_SCAN_INTERVAL_MS` (default `5000`)
+and broadcasts newly detected overstays to the Admin room. Exit operators can
+also click a blinking overstay spot in the lot map to notify the Admin. Only the
+Admin can force-release the vehicle; that settlement applies the configured
+overstay penalty.
 
 ## Seeding a local demo
 
 Run `npm run seed` once against the configured database. It creates the four fixed gate
-accounts (`entry1`, `entry2`, `exit1`, `exit2`), the `admin` account, and the initial
-6 two-wheeler / 10 four-wheeler spots. The local password is `password123` unless
-`SEED_PASSWORD` is set; the script is idempotent.
+accounts (`entry1`, `entry2`, `exit1`, `exit2`), the `admin` account, the initial
+6 two-wheeler / 10 four-wheeler spots, and sample activity: active vehicles with
+live timers (including overstay examples), completed transactions for the
+revenue chart, and audit history. The local password is `password123` unless
+`SEED_PASSWORD` is set; the script is idempotent. Set `SEED_DEMO_DATA=false` to
+seed only accounts/spots, which the isolated k6 database does.
 
 ## Running and tests
 

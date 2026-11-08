@@ -21,6 +21,20 @@ const {
   processExit,
 } = require("../services/fareExitService");
 
+// Keep the conventional one-real-hour-per-billed-hour clock for this unit
+// suite; the compressed demo clock is covered separately.
+const previousSimulatedHourSeconds = process.env.SIMULATED_HOUR_SECONDS;
+beforeAll(() => {
+  process.env.SIMULATED_HOUR_SECONDS = "3600";
+});
+afterAll(() => {
+  if (previousSimulatedHourSeconds === undefined) {
+    delete process.env.SIMULATED_HOUR_SECONDS;
+  } else {
+    process.env.SIMULATED_HOUR_SECONDS = previousSimulatedHourSeconds;
+  }
+});
+
 function activeTransaction(overrides = {}) {
   return {
     _id: "tx-1",

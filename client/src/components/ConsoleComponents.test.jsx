@@ -80,7 +80,7 @@ describe("ExitConsole", () => {
     expect(api.lookupTicket).toHaveBeenCalledWith("TKT-1");
     expect(api.processExit).toHaveBeenCalledWith({ ticketId: "TKT-1", gateId: "Exit-1" });
     expect(await screen.findByText(/base fare ₹30\.00/i)).toBeInTheDocument();
-    expect(screen.getByText(/5400 seconds|1 hour 30 minutes/i)).toBeInTheDocument();
+    expect(screen.getByText(/1\.5 hrs/i)).toBeInTheDocument();
     expect(screen.getByText("RCP-1")).toBeInTheDocument();
   });
 

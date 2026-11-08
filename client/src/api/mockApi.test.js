@@ -44,7 +44,7 @@ describe("mock API (SAD 4.3 shapes)", () => {
     const receipt = await api.processExit({ ticketId: "TKT-DEMO-001", gateId: "Exit-1" });
 
     expect(receipt.penaltyApplied).toBe(false);
-    expect(receipt.fare).toBe(30); // 2.5h parked, first hour free, 4W at 20/h
+    expect(receipt.fare).toBeCloseTo(30, 1); // 2.5h parked, first hour free, 4W at 20/h
     expect(receipt.receiptId).toMatch(/^RCP-/);
     await expect(api.lookupTicket("TKT-DEMO-001")).rejects.toMatchObject({ status: 404 });
     expect((await api.getAuditLog()).entries[0].action).toBe("VEHICLE_EXIT");
@@ -59,7 +59,7 @@ describe("mock API (SAD 4.3 shapes)", () => {
 
     expect(receipt.penaltyApplied).toBe(true);
     expect(receipt.breakdown.lostTicketPenalty).toBe(50);
-    expect(receipt.fare).toBe(85); // 4h parked: 2h at 10/h + 1h at 15/h, plus 50 penalty
+    expect(receipt.fare).toBeCloseTo(85, 1); // 4h parked: 2h at 10/h + 1h at 15/h, plus 50 penalty
   });
 
   test("supports the admin fare and spot configuration contract", async () => {
@@ -88,13 +88,28 @@ describe("mock API (SAD 4.3 shapes)", () => {
     });
   });
 
+  test("enforces the overstay threshold against the highest fare tier", async () => {
+    const api = createMockApi({ delayMs: 0 });
+
+    expect(await api.getOverstayConfig()).toEqual(
+      expect.objectContaining({ thresholdHours: 6, minimumHours: 6 }),
+    );
+    await expect(api.updateOverstayConfig({ thresholdHours: 5 })).rejects.toMatchObject({
+      status: 400,
+      code: "INVALID_OVERSTAY_THRESHOLD",
+    });
+    await expect(api.updateOverstayConfig({ thresholdHours: 8 })).resolves.toEqual(
+      expect.objectContaining({ thresholdHours: 8 }),
+    );
+  });
+
   test("lists vehicles whose demo duration already crossed the overstay threshold", async () => {
     const api = createMockApi({ delayMs: 0 });
     const overstays = await api.getOverstays();
 
     expect(overstays).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ ticketId: "TKT-DEMO-002", autoFlagged: true }),
+        expect.objectContaining({ ticketId: "TKT-DEMO-003", autoFlagged: true }),
       ]),
     );
   });

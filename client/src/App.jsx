@@ -134,7 +134,7 @@ function App() {
           ) : (
             <>
               <ConsoleView gateId={currentConsole.gateId} role={currentConsole.role} />
-              <LotMap api={api} realtime={realtime} />
+              <LotMap api={api} realtime={realtime} gateId={currentConsole.gateId} />
             </>
           )}
         </>

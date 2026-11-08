@@ -17,16 +17,16 @@
 
 ## 2. Final result summary
 
-| Suite / check                     | Command                                            | Result                                                                          |
-| --------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------- |
-| Server unit and integration tests | `npm run test:server`                              | **21 suites passed, 252 tests passed, 0 failed**                                |
-| Client unit tests                 | `npm run test:client`                              | **16 suites passed, 91 tests passed, 0 failed**                                 |
-| Client lint                       | `npm run lint`                                     | **Passed, 0 errors / 0 warnings**                                               |
-| Formatting                        | `npm run format:check`                             | **Passed**                                                                      |
-| Client production build           | `VITE_API_MODE=real npm run build --prefix client` | **Passed**                                                                      |
-| k6 concurrent allocation (S4-T1)  | `k6 run loadtest/entry-concurrency.js` (50 VUs)    | **Passed: 103/103 checks, 16 successful entries, 0 duplicate spot assignments** |
-| One-command regression            | `./test.sh`                                        | **Passed end to end**                                                           |
-| Runtime smoke start               | `./run.sh`                                         | **API health connected, client served, admin login returned a valid token**     |
+| Suite / check                     | Command                                            | Result                                                                                    |
+| --------------------------------- | -------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Server unit and integration tests | `npm run test:server`                              | **23 suites passed, 261 tests passed, 0 failed**                                          |
+| Client unit tests                 | `npm run test:client`                              | **16 suites passed, 96 tests passed, 0 failed**                                           |
+| Client lint                       | `npm run lint`                                     | **Passed, 0 errors / 0 warnings**                                                         |
+| Formatting                        | `npm run format:check`                             | **Passed**                                                                                |
+| Client production build           | `VITE_API_MODE=real npm run build --prefix client` | **Passed**                                                                                |
+| k6 concurrent allocation (S4-T1)  | `k6 run loadtest/entry-concurrency.js` (50 VUs)    | **Passed: 103/103 checks, 16 successful entries, 0 duplicate spot assignments**           |
+| One-command regression            | `./test.sh`                                        | **Passed end to end**                                                                     |
+| Runtime smoke start               | `./run.sh`                                         | **API + client served, sample lot timers/overstays returned, 5s/hour exit fare verified** |
 
 The k6 run intentionally produced 34 `409 LOT_FULL` responses because only 16
 spots exist and 50 entry requests were fired simultaneously. Those responses are
@@ -48,10 +48,11 @@ transaction log and found **zero duplicate spot assignments** for the run.
 
 - **Authentication and RBAC:** login, lockout, expired/tampered JWT, gate scoping, admin-only routes, socket identification, admin overstay feed isolation.
 - **Entry and allocation:** zone matching, atomic claim, lot-full handling, duplicate-active-vehicle protection, server-received FCFS ordering, concurrent sessions.
-- **Exit and fare:** ticket lookup, plate fallback, lost-ticket penalty, exact fractional duration, tier boundaries, independent 2W/4W tables, runtime overrides.
-- **Admin:** occupancy/revenue analytics, transaction and audit search, fare-tier reads/writes, spot-count growth/shrink rules, overstay feed, force-release with overstay penalty.
-- **Realtime:** `lot:snapshot` on connect, `spot:update` on entry/exit/force-release, admin-only `overstay:alert`, reconnect convergence.
-- **Client:** all five consoles, login, live lot map, charts, overstay alerts, admin configuration, simulation console, error/empty/loading states, accessibility labels.
+- **Exit and fare:** ticket lookup, plate fallback, lost-ticket penalty, exact simulated duration, tier boundaries, independent 2W/4W tables, runtime overrides, five-real-seconds-per-hour demo clock.
+- **Admin:** occupancy/revenue analytics, transaction and audit search, fare-tier reads/writes, spot-count growth/shrink rules, overstay-threshold configuration and validation, overstay feed, force-release with overstay penalty.
+- **Realtime:** `lot:snapshot` on connect, per-spot vehicle timers and overstay metadata, `spot:update` on entry/exit/force-release, admin-only `overstay:alert`, reconnect convergence.
+- **Client:** all five consoles, login, live lot map with grey/green/blinking-red states and hours timers, click-to-notify overstay interaction, charts, overstay alerts, admin configuration, simulation console, error/empty/loading states, accessibility labels.
+- **Demo data:** idempotent seed with active vehicles, completed revenue history, audit entries, and at least one overstay example.
 - **Data integrity:** append-only audit log, unique active transaction per plate, unique ticket IDs, occupied spots never deleted by configuration changes.
 
 ## 5. Defects and fixes completed in this candidate
@@ -66,6 +67,10 @@ formatting failure. All were resolved:
 5. `server/app.js` formatting and repository-wide Prettier coverage were fixed.
 6. The test harness can fall back to an in-memory MongoDB if no local instance is available.
 7. `run.sh` and `test.sh` provide one-command start and one-command full verification.
+8. The demo clock now bills five real seconds as one simulated hour, and all UI durations are shown in hours.
+9. The lot map now shows grey free spots, green occupied spots with live timers, and blinking red overstays that exit operators can click to notify the Admin.
+10. The Admin now configures the overstay threshold in hours; both threshold and fare-table writes reject a threshold below the highest fare tier.
+11. Seed data now includes sample active vehicles, completed revenue history, audit entries and overstay examples.
 
 No critical or high-severity defects remain open. No duplicate allocation,
 incorrect fare, cross-gate access, or cross-role access was observed in the final

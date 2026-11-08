@@ -50,6 +50,8 @@ export default function AdminConfig({ api, onChanged }) {
   const [configs, setConfigs] = useState(null);
   const [draft, setDraft] = useState(null);
   const [spotCounts, setSpotCounts] = useState({ "2W": "", "4W": "" });
+  const [overstayThreshold, setOverstayThreshold] = useState("");
+  const [overstayMinimum, setOverstayMinimum] = useState(0);
   const vehicleTypeRef = useRef(vehicleType);
 
   useEffect(() => {
@@ -58,9 +60,10 @@ export default function AdminConfig({ api, onChanged }) {
 
   const load = useCallback(async () => {
     try {
-      const [fareConfig, counts] = await Promise.all([
+      const [fareConfig, counts, overstay] = await Promise.all([
         api.getFareConfig(),
         api.getSpotConfig(),
+        api.getOverstayConfig(),
       ]);
       setConfigs(fareConfig);
       setDraft(editableFare(fareConfig[vehicleTypeRef.current] ?? fareConfig["4W"]));
@@ -68,6 +71,8 @@ export default function AdminConfig({ api, onChanged }) {
         "2W": String(counts["2W"] ?? 0),
         "4W": String(counts["4W"] ?? 0),
       });
+      setOverstayThreshold(String(overstay.thresholdHours ?? ""));
+      setOverstayMinimum(Number(overstay.minimumHours) || 0);
       setStatus("ready");
     } catch (loadError) {
       setStatus("error");
@@ -77,8 +82,8 @@ export default function AdminConfig({ api, onChanged }) {
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([api.getFareConfig(), api.getSpotConfig()])
-      .then(([fareConfig, counts]) => {
+    Promise.all([api.getFareConfig(), api.getSpotConfig(), api.getOverstayConfig()])
+      .then(([fareConfig, counts, overstay]) => {
         if (cancelled) return;
         setConfigs(fareConfig);
         setDraft(editableFare(fareConfig[vehicleTypeRef.current] ?? fareConfig["4W"]));
@@ -86,6 +91,8 @@ export default function AdminConfig({ api, onChanged }) {
           "2W": String(counts["2W"] ?? 0),
           "4W": String(counts["4W"] ?? 0),
         });
+        setOverstayThreshold(String(overstay.thresholdHours ?? ""));
+        setOverstayMinimum(Number(overstay.minimumHours) || 0);
         setStatus("ready");
       })
       .catch((loadError) => {
@@ -136,6 +143,14 @@ export default function AdminConfig({ api, onChanged }) {
           overstayPenalty: payload.overstayPenalty,
         },
       }));
+      const otherZone = vehicleType === "2W" ? "4W" : "2W";
+      const otherTiers = configs?.[otherZone]?.tiers ?? [];
+      setOverstayMinimum(
+        Math.max(
+          ...payload.tiers.map((tier) => tier.afterHours),
+          ...otherTiers.map((tier) => tier.afterHours),
+        ),
+      );
       setNotice(`${vehicleType} fare tiers saved. New exits use these rates.`);
       onChanged?.();
     } catch (saveError) {
@@ -166,6 +181,36 @@ export default function AdminConfig({ api, onChanged }) {
       onChanged?.();
     } catch (saveError) {
       setError(errorMessage(saveError, `Could not update the ${zone} spot count.`));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveOverstayThreshold() {
+    if (saving) return;
+    setError("");
+    setNotice("");
+    let hours;
+    try {
+      hours = numeric(overstayThreshold, "Overstay threshold");
+      if (hours < overstayMinimum) {
+        throw new Error(
+          `Overstay threshold must be at least ${overstayMinimum} hours (the highest fare tier).`,
+        );
+      }
+    } catch (validationError) {
+      setError(validationError.message);
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const result = await api.updateOverstayConfig({ thresholdHours: hours });
+      setOverstayThreshold(String(result.thresholdHours));
+      setNotice(`Overstay threshold is now ${result.thresholdHours} hours.`);
+      onChanged?.();
+    } catch (saveError) {
+      setError(errorMessage(saveError, "Could not update the overstay threshold."));
     } finally {
       setSaving(false);
     }
@@ -246,6 +291,34 @@ export default function AdminConfig({ api, onChanged }) {
                 </button>
               </div>
             ))}
+          </div>
+
+          <div className="config-form overstay-config">
+            <h4>Overstay threshold</h4>
+            <label>
+              Hours before a vehicle is overstayed
+              <input
+                type="number"
+                min={overstayMinimum}
+                step="0.5"
+                value={overstayThreshold}
+                onChange={(event) => setOverstayThreshold(event.target.value)}
+                disabled={saving}
+              />
+            </label>
+            <p className="field-hint">
+              Must be at least {overstayMinimum} hours, the highest fare tier. Vehicles
+              past this threshold are shown blinking red to exit operators and can be
+              force-released by the admin.
+            </p>
+            <button
+              type="button"
+              className="secondary-button compact-button"
+              onClick={() => void saveOverstayThreshold()}
+              disabled={saving}
+            >
+              Update overstay threshold
+            </button>
           </div>
 
           {error && (

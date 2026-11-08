@@ -84,7 +84,8 @@ describe("S4-T2 — simulation fare-tier override", () => {
       spotId: spot._id,
       entryGateId: "Entry-1",
       entryOperatorId: ENTRY_OPERATOR_ID,
-      entryTimestamp: new Date(Date.now() - 2 * 60 * 60 * 1000),
+      // Two simulated hours under the default five-seconds-per-hour clock.
+      entryTimestamp: new Date(Date.now() - 10 * 1000),
       status: "active",
     });
 
@@ -94,8 +95,8 @@ describe("S4-T2 — simulation fare-tier override", () => {
       .send({ ticketId: "TKT-OVERRIDE-1" })
       .expect(200);
 
-    expect(receipt.body.fare).toBeCloseTo(14, 3);
-    expect(receipt.body.breakdown.baseFare).toBeCloseTo(14, 3);
+    expect(receipt.body.fare).toBeCloseTo(14, 1);
+    expect(receipt.body.breakdown.baseFare).toBeCloseTo(14, 1);
     expect(receipt.body.breakdown).not.toHaveProperty("lostTicketPenalty");
   });
 

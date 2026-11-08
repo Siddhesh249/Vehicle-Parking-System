@@ -6,6 +6,7 @@ const Spot = require("../models/Spot");
 const { calculateFareDetails } = require("./fareService");
 const { getFareConfig } = require("./fareConfigService");
 const { writeAuditEntry } = require("./auditService");
+const { simulatedHoursBetween } = require("../utils/simulatedTime");
 
 function serviceError(message, code, statusCode) {
   const error = new Error(message);
@@ -93,7 +94,8 @@ async function processExit({
       400,
     );
   }
-  const durationSeconds = durationMilliseconds / 1000;
+  const durationHours = simulatedHoursBetween(transaction.entryTimestamp, exitTime);
+  const durationSeconds = durationHours * 3600;
   const fareConfig = await getFareConfig(transaction.vehicleType);
   const fareDetails = calculateFareDetails(
     transaction.entryTimestamp,
@@ -169,6 +171,7 @@ async function processExit({
       gateId,
       fare: fareDetails.total,
       durationSeconds,
+      durationHours,
       penaltyApplied: lostTicket,
     },
   });
@@ -181,6 +184,7 @@ async function processExit({
     entryTimestamp: settledTransaction.entryTimestamp,
     exitTimestamp: exitTime,
     durationSeconds,
+    durationHours,
     fare: fareDetails.total,
     penaltyApplied: lostTicket,
     breakdown: {

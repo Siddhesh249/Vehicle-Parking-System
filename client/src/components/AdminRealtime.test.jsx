@@ -81,7 +81,7 @@ describe("S3-T4 — admin panels refresh from real API responses", () => {
     render(<AdminConsole api={api} realtime={realtime} />);
 
     expect(await screen.findByText("KA09OV0001")).toBeInTheDocument();
-    expect(screen.getByText(/parked 3 hours/i)).toBeInTheDocument();
+    expect(screen.getByText(/parked 3\.0 hrs/i)).toBeInTheDocument();
   });
 
   test("shows an overstay alert and force-releases it from the admin dashboard", async () => {

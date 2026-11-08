@@ -25,8 +25,13 @@ const {
   forceRelease,
   listOverstays,
 } = require("./services/overstayService");
+const {
+  getOverstayConfig,
+  updateOverstayThreshold,
+} = require("./services/overstayConfigService");
 const { requireRole } = require("./middleware/authMiddleware");
 const { verifyToken } = require("./utils/jwtUtils");
+const { simulatedHoursBetween, timeScaleInfo } = require("./utils/simulatedTime");
 const {
   startSimulation,
   stopSimulation,
@@ -34,6 +39,7 @@ const {
   setFareOverride,
 } = require("./services/simulationService");
 const Spot = require("./models/Spot");
+const Transaction = require("./models/Transaction");
 
 const app = express();
 app.disable("x-powered-by");
@@ -81,6 +87,29 @@ async function buildLotSnapshot({ zone } = {}) {
     .sort({ zone: 1, spotNumber: 1 })
     .lean();
 
+  const reservedSpotIds = spots
+    .filter((spot) => spot.status === "reserved")
+    .map((spot) => spot._id);
+  const [activeTransactions, overstayConfig] = await Promise.all([
+    reservedSpotIds.length
+      ? Transaction.find(
+          { status: "active", spotId: { $in: reservedSpotIds } },
+          {
+            ticketId: 1,
+            plateNumber: 1,
+            vehicleType: 1,
+            spotId: 1,
+            entryTimestamp: 1,
+            isOverstay: 1,
+          },
+        ).lean()
+      : [],
+    getOverstayConfig(),
+  ]);
+  const transactionBySpot = new Map(
+    activeTransactions.map((transaction) => [String(transaction.spotId), transaction]),
+  );
+
   const byZone = {
     "2W": { occupied: 0, total: 0, pct: 0 },
     "4W": { occupied: 0, total: 0, pct: 0 },
@@ -95,20 +124,43 @@ async function buildLotSnapshot({ zone } = {}) {
     summary.pct = percentage(summary.occupied, summary.total);
   }
 
+  const now = new Date();
   const occupied = spots.filter((spot) => spot.status === "reserved").length;
   return {
-    spots: spots.map((spot) => ({
-      id: String(spot._id),
-      spotNumber: spot.spotNumber,
-      zone: spot.zone,
-      status: spot.status,
-    })),
+    spots: spots.map((spot) => {
+      const transaction = transactionBySpot.get(String(spot._id));
+      const durationHours = transaction
+        ? simulatedHoursBetween(transaction.entryTimestamp, now)
+        : null;
+      return {
+        id: String(spot._id),
+        spotNumber: spot.spotNumber,
+        zone: spot.zone,
+        status: spot.status,
+        vehicle: transaction
+          ? {
+              transactionId: String(transaction._id),
+              ticketId: transaction.ticketId,
+              plateNumber: transaction.plateNumber,
+              vehicleType: transaction.vehicleType,
+              entryTimestamp: transaction.entryTimestamp,
+              durationHours,
+              isOverstay:
+                Boolean(transaction.isOverstay) ||
+                durationHours >= overstayConfig.thresholdHours,
+            }
+          : null,
+      };
+    }),
     occupancy: {
       totalPct: percentage(occupied, spots.length),
       occupied,
       totalSpots: spots.length,
       byZone,
     },
+    timeScale: timeScaleInfo(),
+    overstayThresholdHours: overstayConfig.thresholdHours,
+    minimumOverstayThresholdHours: overstayConfig.minimumHours,
   };
 }
 
@@ -415,7 +467,9 @@ app.post(
         plateNumber: notification.plateNumber,
         gateId: notification.gateId,
         duration: notification.durationSeconds,
+        durationHours: notification.durationHours,
       });
+      broadcastLotSnapshot();
       return res.status(200).json(notification);
     } catch (error) {
       return sendServiceError(res, error);
@@ -477,6 +531,37 @@ app.put("/api/admin/config/spots", authenticateToken, requireAdmin, async (req, 
     return sendServiceError(res, error);
   }
 });
+
+app.get(
+  "/api/admin/config/overstay",
+  authenticateToken,
+  requireAdmin,
+  async (_req, res) => {
+    try {
+      return res.status(200).json(await getOverstayConfig());
+    } catch (error) {
+      return sendServiceError(res, error);
+    }
+  },
+);
+
+app.put(
+  "/api/admin/config/overstay",
+  authenticateToken,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const result = await updateOverstayThreshold(
+        { thresholdHours: req.body?.thresholdHours },
+        req.user,
+      );
+      broadcastLotSnapshot();
+      return res.status(200).json(result);
+    } catch (error) {
+      return sendServiceError(res, error);
+    }
+  },
+);
 
 app.post(
   "/api/admin/vehicles/:id/force-release",

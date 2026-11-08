@@ -93,6 +93,8 @@ jobs:
 
       - name: Seed load-test data
         working-directory: server
+        env:
+          SEED_DEMO_DATA: "false"
         run: npm run seed
 
       - name: Start backend

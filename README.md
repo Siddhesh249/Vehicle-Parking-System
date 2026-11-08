@@ -20,7 +20,7 @@ Prerequisites: Node.js 24 LTS, npm, MongoDB running locally, and `curl`. k6 is o
 ./test.sh
 ```
 
-The app opens at **http://localhost:5173**. The API listens on **http://127.0.0.1:5000** and the health check is **http://127.0.0.1:5000/api/health**.
+The app opens at **http://localhost:5173**. The API listens on **http://127.0.0.1:5000** and the health check is **http://127.0.0.1:5000/api/health**. The seed includes sample active vehicles (with live timers and overstay examples), completed transactions for the revenue chart, and audit history, so the dashboard is useful immediately.
 
 | Account | Role          | Gate    | Password      |
 | ------- | ------------- | ------- | ------------- |
@@ -62,15 +62,18 @@ This constraint is why concurrency-safe, atomic database writes matter so much h
 
 1. Operator looks the vehicle up by Ticket ID (fast path) or by plate number (fallback — this is the "lost ticket" case, since without the ID a manual DB search is the only recourse).
 2. Losing the ticket triggers a **penalty**, added to the computed fare — the ticket ID's value _is_ that it lets you skip this.
-3. Fare is computed on the **exact** duration (down to the second/decimal — no rounding): **first hour free**, then hourly charges that **increase every 2–3 hours**. Two-wheelers and four-wheelers have **independently configurable** rate tables.
-4. On confirmed exit, the spot is immediately marked free (live, across all tabs) and the finalized transaction (plate, times, duration, fare, gate, operator) is permanently recorded.
+3. Fare is computed on the **exact simulated duration** (no rounding): **first hour free**, then hourly charges that **increase every 2–3 hours**. Two-wheelers and four-wheelers have **independently configurable** rate tables.
+4. **Demo clock:** by default, **5 real seconds = 1 simulated parking hour** (`SIMULATED_HOUR_SECONDS`). All fare tiers, overstay checks and UI timers use simulated hours, so a 26-second stay is displayed and billed as 5.2 hours.
+5. On confirmed exit, the spot is immediately marked free (live, across all tabs) and the finalized transaction (plate, times, duration, fare, gate, operator) is permanently recorded.
 
-The Admin dashboard can edit the fare tiers, first-hour policy, lost-ticket/overstay penalties, and per-zone spot counts at runtime. Changes apply to subsequent exits without a redeploy.
+The Admin dashboard can edit the fare tiers, first-hour policy, lost-ticket/overstay penalties, per-zone spot counts, and the overstay threshold at runtime. Changes apply to subsequent exits without a redeploy.
 
 ## 8. Overstay handling
 
-- A vehicle is flagged "overstayed" once its parked duration crosses the configurable threshold (`OVERSTAY_THRESHOLD_MINUTES`, default 120 minutes). The Admin dashboard refreshes the automatic overstay feed every 30 seconds, and the server broadcasts a new alert to connected admin tabs on its own periodic scan.
-- The operator can also **notify the Admin** explicitly; that notification is broadcast immediately.
+- A vehicle is flagged "overstayed" once its simulated parked duration crosses the Admin-configured threshold. The default is 6 hours, and the server scans periodically and broadcasts new alerts to connected admin tabs.
+- The threshold cannot be lower than the highest fare-tier threshold. For example, if the last tier begins at 6 hours, the overstay threshold must be at least 6 hours. Both configuration paths enforce this server-side.
+- The exit operator's lot map shows free spots grey, occupied spots green with a live hours timer, and overstayed spots blinking red. Clicking an overstayed spot sends an immediate notification to the Admin and displays “Notification sent to admin.”
+- The operator can also notify the Admin from an exit lookup; that notification is broadcast immediately.
 - Only the **Admin** can force-release the spot.
 - A force-release **automatically applies an overstay penalty** to the fare.
 
@@ -84,23 +87,25 @@ The Admin dashboard can edit the fare tiers, first-hour policy, lost-ticket/over
 ## 10. Frontend look and feel
 
 - Minimalist. Red-and-white theme with red accents. Explicitly **not** animation-heavy — "just a pretty visual."
-- The parking lot is shown as a live grid of spots, green = free, red = reserved, split visually into 2W and 4W zones. Every spot also has a text status label, so status is never conveyed by colour alone.
+- The parking lot is shown as a live grid of spots, split visually into 2W and 4W zones: grey = free, green = occupied (with a live hours timer), blinking red = overstayed. Every spot also has a text status label, so status is never conveyed by colour alone.
+- Exit operators can click a blinking overstayed spot to notify the Admin; the first click disables repeat notifications for that vehicle and confirms “Notification sent to admin.”
 - All open sessions (both entry consoles, both exit consoles, admin dashboard) show an **identical, live-updating** view — the Socket.io broadcast requirement and the main "wow" moment for a demo.
 - Admin dashboard additionally has revenue-over-time and occupancy-over-time charts, a searchable full transaction/audit log, overstay alerts with force-release, and fare/spot configuration — none of which operators can see.
 
 ## 11. Configuration
 
-| Variable                     | Where         | Default                 | Purpose                                        |
-| ---------------------------- | ------------- | ----------------------- | ---------------------------------------------- |
-| `MONGO_URI`                  | `server/.env` | local `vehicle_parking` | MongoDB connection string                      |
-| `PORT`                       | `server/.env` | `5000`                  | API port                                       |
-| `CLIENT_URL`                 | `server/.env` | `http://localhost:5173` | Allowed browser origin                         |
-| `JWT_SECRET`                 | `server/.env` | dev fallback            | JWT signing secret; required in production     |
-| `OVERSTAY_THRESHOLD_MINUTES` | environment   | `120`                   | Automatic overstay threshold                   |
-| `OVERSTAY_SCAN_INTERVAL_MS`  | environment   | `30000`                 | Background overstay scan interval              |
-| `DISABLE_SIMULATION`         | environment   | unset                   | Set `true` to hide developer simulation routes |
-| `VITE_API_MODE`              | client env    | `mock`                  | `real` talks to the backend; `mock` is offline |
-| `CLIENT_PORT` / `PORT`       | `./run.sh`    | `5173` / `5000`         | Ports used by the convenience launcher         |
+| Variable                    | Where         | Default                 | Purpose                                        |
+| --------------------------- | ------------- | ----------------------- | ---------------------------------------------- |
+| `MONGO_URI`                 | `server/.env` | local `vehicle_parking` | MongoDB connection string                      |
+| `PORT`                      | `server/.env` | `5000`                  | API port                                       |
+| `CLIENT_URL`                | `server/.env` | `http://localhost:5173` | Allowed browser origin                         |
+| `JWT_SECRET`                | `server/.env` | dev fallback            | JWT signing secret; required in production     |
+| `SIMULATED_HOUR_SECONDS`    | environment   | `5`                     | Real seconds that represent one billed hour    |
+| `OVERSTAY_SCAN_INTERVAL_MS` | environment   | `5000`                  | Background overstay scan interval              |
+| `DISABLE_SIMULATION`        | environment   | unset                   | Set `true` to hide developer simulation routes |
+| `SEED_DEMO_DATA`            | environment   | `true`                  | Set `false` to omit sample vehicles/history    |
+| `VITE_API_MODE`             | client env    | `mock`                  | `real` talks to the backend; `mock` is offline |
+| `CLIENT_PORT` / `PORT`      | `./run.sh`    | `5173` / `5000`         | Ports used by the convenience launcher         |
 
 Copy `server/.env.example` to `server/.env` for a custom local setup. Never commit `.env` files or real credentials.
 

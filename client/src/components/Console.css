@@ -233,24 +233,75 @@ td {
 }
 .spot {
   display: flex;
-  flex-direction: column;
-  padding: 8px;
+  min-height: 92px;
   border: 2px solid;
   border-radius: 6px;
   font-size: 0.8rem;
 }
+.spot-content {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.spot-clickable {
+  cursor: pointer;
+}
 .spot-id {
   font-weight: 700;
 }
+.spot-plate {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.7rem;
+}
+.spot-timer {
+  font-weight: 700;
+}
+.spot-hint {
+  margin-top: 2px;
+  font-size: 0.68rem;
+  text-decoration: underline;
+}
 .spot-free {
+  border-color: #c5c8ce;
+  color: #70757d;
+  background: #f1f2f4;
+}
+.spot-occupied {
   border-color: #1b7f3b;
   color: #14602c;
   background: #f1faf4;
 }
-.spot-reserved {
+.spot-overstay {
   border-color: var(--c-red);
   color: #7a1f1f;
   background: #fdf0f0;
+  animation: spot-overstay-blink 1s steps(2, end) infinite;
+}
+.spot-overstay .spot-hint {
+  font-weight: 700;
+}
+.spot-content:focus-visible {
+  outline: 3px solid #202124;
+  outline-offset: 2px;
+}
+@keyframes spot-overstay-blink {
+  50% {
+    border-color: #8f1d1d;
+    background: #f6c7c7;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spot-overstay {
+    animation: none;
+  }
 }
 
 .chart {
@@ -304,7 +355,8 @@ button.text-link {
   flex-wrap: wrap;
   gap: 18px;
 }
-.spot-config {
+.spot-config,
+.overstay-config {
   padding-top: 18px;
   border-top: 1px solid var(--c-line);
 }
