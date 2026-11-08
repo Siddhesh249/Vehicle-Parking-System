@@ -76,3 +76,22 @@ th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--c-l
 .live-status { margin: 0 0 8px; }
 
 button.text-link { padding: 0; border: 0; background: none; font: inherit; cursor: pointer; }
+
+/* Comfortable touch targets. */
+.primary-button,
+.secondary-button { min-height: 44px; }
+.console-form input,
+.console-form select,
+.inline-form input { min-height: 44px; }
+
+/* Simulation Console */
+.sim-grid { display: grid; gap: 0 16px; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); }
+.sim-status { margin: 16px 0 8px; }
+.sim-on { color: #14602c; }
+.sim-off { color: #7a1f1f; }
+.fare-form { display: grid; gap: 12px; max-width: 420px; }
+.fare-form label { display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; color: var(--c-muted); }
+.fare-form input[type="number"],
+.fare-form select { min-height: 44px; padding: 9px 10px; border: 1px solid #b9bcc1; border-radius: 6px; color: #202124; background: #fff; }
+.fare-form .check-row { flex-direction: row; align-items: center; gap: 8px; }
+.tier-row { display: grid; gap: 12px; grid-template-columns: 1fr 1fr; }

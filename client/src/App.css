@@ -88,15 +88,10 @@
   color: inherit;
   text-align: left;
   text-decoration: none;
-  transition:
-    border-color 0.15s,
-    box-shadow 0.15s;
 }
-.console-card:hover,
-.console-card:focus-visible {
+.console-card:hover {
   border-color: #e6a0a0;
   box-shadow: 0 5px 18px #2021240c;
-  outline: none;
 }
 .card-icon {
   flex: 0 0 auto;
@@ -176,5 +171,47 @@
   }
   .environment-label {
     font-size: 12px;
+  }
+}
+
+/* Accessibility and final theme polish. */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+main:focus-visible {
+  outline: 3px solid #202124;
+  outline-offset: 2px;
+}
+
+main:focus-visible {
+  outline: none;
+}
+
+.skip-link {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 10;
+  padding: 10px 14px;
+  border-radius: 6px;
+  background: #202124;
+  color: #fff;
+  font-weight: 600;
+  transform: translateY(-200%);
+}
+
+.skip-link:focus {
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
   }
 }

@@ -24,17 +24,18 @@ const HOUR_MS = 3600 * 1000;
 const fail = (status, message, code) => Promise.reject({ status, code, message });
 const round2 = (n) => Math.round(n * 100) / 100;
 
-function calculateBaseFare(durationSeconds, vehicleType) {
+function calculateBaseFare(durationSeconds, vehicleType, config = FARE_CONFIG) {
   const durationHours = durationSeconds / 3600;
-  if (durationHours <= 1) return 0;
+  const { tiers, firstHourFree } = config[vehicleType];
+  const freeHours = firstHourFree === false ? 0 : 1;
+  if (durationHours <= freeHours) return 0;
 
-  const { tiers } = FARE_CONFIG[vehicleType];
   return round2(
     tiers.reduce((fare, tier, index) => {
       const nextThreshold = tiers[index + 1]?.afterHours ?? Infinity;
       const chargedHours = Math.max(
         0,
-        Math.min(durationHours, nextThreshold) - Math.max(1, tier.afterHours),
+        Math.min(durationHours, nextThreshold) - Math.max(freeHours, tier.afterHours),
       );
       return fare + chargedHours * tier.ratePerHour;
     }, 0),
@@ -83,6 +84,44 @@ export function createMockApi({ delayMs = 150 } = {}) {
   const listeners = new Set();
   const emit = (spotId, status) =>
     listeners.forEach((listener) => listener({ spotId, status }));
+
+  // Runtime fare overrides (Simulation Console) change this copy, not the shared defaults.
+  const fareConfig = JSON.parse(JSON.stringify(FARE_CONFIG));
+
+  const nextTicketId = () => {
+    ticketSeq += 1;
+    const stamp = new Date(now()).toISOString().slice(0, 10).replace(/-/g, "");
+    return `TKT-${stamp}-${String(ticketSeq).padStart(3, "0")}`;
+  };
+
+  // Synthetic arrival generator state (VPS-DEV-001).
+  const sim = {
+    timer: null,
+    rate: 0,
+    startedAt: null,
+    generated: 0,
+    ok: 0,
+    full: 0,
+    carry: 0,
+  };
+
+  const syntheticArrival = () => {
+    sim.generated += 1;
+    const record = park({
+      ticketId: nextTicketId(),
+      plateNumber: `SIM${Math.random().toString(36).slice(2, 14).toUpperCase()}`,
+      vehicleType: Math.random() < 0.65 ? "2W" : "4W",
+      entryTimestamp: new Date(now()).toISOString(),
+      gateId: Math.random() < 0.5 ? "Entry-1" : "Entry-2",
+    });
+    if (!record) {
+      sim.full += 1;
+      return;
+    }
+    sim.ok += 1;
+    log("VEHICLE_ENTRY");
+    emit(record.spotId, "reserved");
+  };
 
   const log = (action, actorRole = "operator") =>
     audit.unshift({ action, actorRole, createdAt: new Date(now()).toISOString() });
@@ -158,9 +197,7 @@ export function createMockApi({ delayMs = 150 } = {}) {
         return fail(400, "Plate number and a valid vehicle type are required");
       if (active().some((r) => r.plateNumber === plateNumber))
         return fail(409, "This vehicle is already parked", "ALREADY_PARKED");
-      ticketSeq += 1;
-      const stamp = new Date(now()).toISOString().slice(0, 10).replace(/-/g, "");
-      const ticketId = `TKT-${stamp}-${String(ticketSeq).padStart(3, "0")}`;
+      const ticketId = nextTicketId();
       const record = park({
         ticketId,
         plateNumber,
@@ -196,9 +233,9 @@ export function createMockApi({ delayMs = 150 } = {}) {
         (now() - new Date(record.entryTimestamp).getTime()) / 1000,
       );
       // Mirrors the backend's first-hour-free, tiered, exact-duration policy.
-      const baseFare = calculateBaseFare(durationSeconds, record.vehicleType);
+      const baseFare = calculateBaseFare(durationSeconds, record.vehicleType, fareConfig);
       const penaltyApplied = !ticketId;
-      const lostTicketPenalty = FARE_CONFIG[record.vehicleType].lostTicketPenalty;
+      const lostTicketPenalty = fareConfig[record.vehicleType].lostTicketPenalty;
       const breakdown = { baseFare, ...(penaltyApplied ? { lostTicketPenalty } : {}) };
       const fare = round2(baseFare + (penaltyApplied ? lostTicketPenalty : 0));
       receiptSeq += 1;
@@ -287,6 +324,86 @@ export function createMockApi({ delayMs = 150 } = {}) {
         ticketId: record.ticketId,
         plateNumber: record.plateNumber,
       };
+    },
+
+    // Simulation Console (SAD 4.3.7). No artificial delay, so the generator timing stays exact.
+    async startSimulation({ ratePerMinute } = {}) {
+      if (
+        typeof ratePerMinute !== "number" ||
+        !(ratePerMinute > 0) ||
+        ratePerMinute > 600
+      ) {
+        return fail(
+          400,
+          "ratePerMinute must be greater than 0 and at most 600",
+          "INVALID_SIMULATION_RATE",
+        );
+      }
+      if (sim.timer) clearInterval(sim.timer);
+      Object.assign(sim, {
+        rate: ratePerMinute,
+        startedAt: now(),
+        generated: 0,
+        ok: 0,
+        full: 0,
+        carry: 0,
+      });
+      sim.timer = setInterval(() => {
+        sim.carry += sim.rate / 60;
+        const due = Math.floor(sim.carry);
+        sim.carry -= due;
+        for (let i = 0; i < due; i += 1) syntheticArrival();
+      }, 1000);
+      return { status: "running" };
+    },
+
+    async stopSimulation() {
+      if (sim.timer) clearInterval(sim.timer);
+      Object.assign(sim, { timer: null, rate: 0, startedAt: null, carry: 0 });
+      return { status: "stopped" };
+    },
+
+    async getSimulationStatus() {
+      await wait();
+      return {
+        running: sim.timer !== null,
+        ratePerMinute: sim.rate,
+        startedAt: sim.startedAt ? new Date(sim.startedAt).toISOString() : null,
+        generatedArrivals: sim.generated,
+        successfulAllocations: sim.ok,
+        fullLotArrivals: sim.full,
+        lastError: null,
+      };
+    },
+
+    async setFareOverride(config = {}) {
+      const { vehicleType, tiers, firstHourFree, lostTicketPenalty } = config;
+      if (!fareConfig[vehicleType])
+        return fail(400, "vehicleType must be either '2W' or '4W'");
+      const valid =
+        Array.isArray(tiers) &&
+        tiers.length > 0 &&
+        tiers.every(
+          (t, i) =>
+            Number.isFinite(t.afterHours) &&
+            t.afterHours >= 0 &&
+            (i === 0 || t.afterHours > tiers[i - 1].afterHours) &&
+            Number.isFinite(t.ratePerHour) &&
+            t.ratePerHour >= 0,
+        );
+      if (!valid) {
+        return fail(
+          400,
+          "Fare tiers need increasing afterHours and non-negative ratePerHour values",
+        );
+      }
+      fareConfig[vehicleType] = {
+        ...fareConfig[vehicleType],
+        tiers: tiers.map(({ afterHours, ratePerHour }) => ({ afterHours, ratePerHour })),
+        firstHourFree: firstHourFree !== false,
+        ...(lostTicketPenalty !== undefined ? { lostTicketPenalty } : {}),
+      };
+      return { updated: true, vehicleType };
     },
 
     // Same interface as the Socket.io connection: connect(handlers) returns a disconnect function.

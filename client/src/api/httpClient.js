@@ -90,6 +90,19 @@ export function createHttpApi({
     getTransactions: async ({ plate } = {}) =>
       asList(await request("/admin/transactions", { query: { plate } }), "records"),
     getAuditLog: async () => asList(await request("/admin/audit-log"), "entries"),
+
+    // Developer-only Simulation Console routes (SAD 4.3.7). They are not part of the login flow,
+    // so no token is sent; the server answers 404 for them in production.
+    startSimulation: ({ ratePerMinute }) =>
+      request("/dev/simulate/start", {
+        method: "POST",
+        body: { ratePerMinute },
+        auth: false,
+      }),
+    stopSimulation: () => request("/dev/simulate/stop", { method: "POST", auth: false }),
+    getSimulationStatus: () => request("/dev/simulate/status", { auth: false }),
+    setFareOverride: (config) =>
+      request("/dev/simulate/fare-tiers", { method: "PUT", body: config, auth: false }),
     forceRelease: (vehicleId) =>
       request(`/admin/vehicles/${encodeURIComponent(vehicleId)}/force-release`, {
         method: "POST",
