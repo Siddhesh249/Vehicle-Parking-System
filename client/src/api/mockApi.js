@@ -78,6 +78,8 @@ export function createMockApi({ delayMs = 150 } = {}) {
   const audit = [];
   let ticketSeq = 0;
   let receiptSeq = 0;
+  let simulationRunning = false;
+  let simulationRate = 0;
 
   // Same-tab stand-in for the Socket.io spot:update broadcast.
   const listeners = new Set();
@@ -143,6 +145,33 @@ export function createMockApi({ delayMs = 150 } = {}) {
   };
 
   return {
+    async getSimulationStatus() {
+      await wait();
+      return { running: simulationRunning, ratePerMinute: simulationRate, generatedArrivals: 0 };
+    },
+    async startSimulation({ ratePerMinute }) {
+      await wait();
+      if (!Number.isFinite(ratePerMinute) || ratePerMinute <= 0 || ratePerMinute > 600) {
+        return fail(400, "Rate must be between 1 and 600 arrivals per minute", "INVALID_SIMULATION_RATE");
+      }
+      simulationRunning = true;
+      simulationRate = ratePerMinute;
+      return { status: "running" };
+    },
+    async stopSimulation() {
+      await wait();
+      simulationRunning = false;
+      simulationRate = 0;
+      return { status: "stopped" };
+    },
+    async setSimulationFareTiers(config) {
+      await wait();
+      if (!["2W", "4W"].includes(config?.vehicleType) || !Array.isArray(config?.tiers) || !config.tiers.length) {
+        return fail(400, "A vehicle type and non-empty fare tiers are required", "INVALID_FARE_OVERRIDE");
+      }
+      FARE_CONFIG[config.vehicleType] = { ...FARE_CONFIG[config.vehicleType], ...config };
+      return { updated: true, vehicleType: config.vehicleType };
+    },
     async getLotStatus() {
       await wait();
       const { totalPct, byZone } = lotStatus();
