@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import "./App.css";
 import { api, apiMode, realtime } from "./api/index.js";
 import { clearSession, getSession, saveSession } from "./api/session.js";
@@ -6,7 +7,9 @@ import EntryConsole from "./components/EntryConsole.jsx";
 import ExitConsole from "./components/ExitConsole.jsx";
 import LoginForm from "./components/LoginForm.jsx";
 import LotMap from "./components/LotMap.jsx";
+import FareOverrideForm from "./components/FareOverrideForm.jsx";
 import SimulationConsole from "./components/SimulationConsole.jsx";
+import SimulationStats from "./components/SimulationStats.jsx";
 
 const consoles = [
   { path: "/entry-1", label: "Entry Gate 1", role: "Entry operator", gateId: "Entry-1" },
@@ -43,7 +46,27 @@ function App() {
   const currentPath = window.location.pathname.replace(/\/$/, "") || "/";
   const currentConsole = consoles.find(({ path }) => path === currentPath);
   const isLogin = currentPath === "/login";
-  const isSimulationConsole = currentPath === "/dev/simulate";
+  // Developer-only: reachable by typing the address, never linked from any screen (VPS-DEV-003).
+  const isSimulation = currentPath === "/dev/simulate";
+  const pageTitle = currentConsole
+    ? currentConsole.label
+    : isLogin
+      ? "Sign in"
+      : isSimulation
+        ? "Developer tools"
+        : "Choose a console";
+  const pageIntro = currentConsole
+    ? `${currentConsole.role} workspace. Sign in to continue to your assigned gate.`
+    : isLogin
+      ? "Use your gate or administrator account."
+      : isSimulation
+        ? "Developer utility for demos and load testing. Gate operators and admins never see it."
+        : "Select a gate console or the administrator workspace to get started.";
+
+  // Each page load is a new document, so give it a meaningful title for screen readers and tabs.
+  useEffect(() => {
+    document.title = `${pageTitle} · Vehicle Parking System`;
+  }, [pageTitle]);
   const session = isReal ? getSession() : null;
   // The server rejects cross-gate requests anyway; this keeps the visible
   // console from pretending the session has access it does not have.
@@ -57,7 +80,10 @@ function App() {
     );
 
   return (
-    <main className="parking-app">
+    <div className="parking-app">
+      <a className="skip-link" href="#main-content">
+        Skip to main content
+      </a>
       <header className="app-header">
         <a className="brand" href="/" aria-label="Parkwise home">
           <span className="brand-mark" aria-hidden="true">
@@ -79,94 +105,92 @@ function App() {
         </span>
       </header>
 
-      <section className="welcome-panel" aria-labelledby="page-title">
-        <p className="eyebrow">VEHICLE PARKING SYSTEM</p>
-        <h1 id="page-title">
-          {currentConsole
-            ? currentConsole.label
-            : isLogin
-              ? "Sign in"
-              : "Choose a console"}
-        </h1>
-        <p className="intro">
-          {currentConsole
-            ? `${currentConsole.role} workspace. Sign in to continue to your assigned gate.`
-            : isLogin
-              ? "Use your gate or administrator account."
-              : "Select a gate console or the administrator workspace to get started."}
-        </p>
-      </section>
+      <main id="main-content" tabIndex={-1}>
+        <section className="welcome-panel" aria-labelledby="page-title">
+          <p className="eyebrow">VEHICLE PARKING SYSTEM</p>
+          <h1 id="page-title">{pageTitle}</h1>
+          <p className="intro">{pageIntro}</p>
+        </section>
 
-      {isSimulationConsole ? (
-        <SimulationConsole api={api} />
-      ) : currentConsole ? (
-        <>
-          <section className="console-card" aria-labelledby="console-title">
-            <div className="card-icon" aria-hidden="true">
-              {currentPath === "/admin" ? "A" : "G"}
-            </div>
-            <div>
-              <h2 id="console-title">{currentConsole.role} console</h2>
-              <p>
-                {isReal
-                  ? "Connected to the live backend."
-                  : "Running on mock data until the backend is connected."}
-              </p>
-            </div>
-            <a className="text-link" href="/">
-              All consoles
-            </a>
-          </section>
-          {isReal && !session ? (
-            <section className="console-panel">
-              <p>
-                Sign in to use this console. <a href="/login">Go to sign in</a>
-              </p>
+        {currentConsole ? (
+          <>
+            <section className="console-card" aria-labelledby="console-title">
+              <div className="card-icon" aria-hidden="true">
+                {currentPath === "/admin" ? "A" : "G"}
+              </div>
+              <div>
+                <h2 id="console-title">{currentConsole.role} console</h2>
+                <p>
+                  {isReal
+                    ? "Connected to the live backend."
+                    : "Running on mock data until the backend is connected."}
+                </p>
+              </div>
+              <a className="text-link" href="/">
+                All consoles
+              </a>
             </section>
-          ) : isReal && !canUseConsole ? (
-            <section className="console-panel">
-              <p role="alert">
-                This account is signed in as {session.gateId ?? session.role}, not{" "}
-                {currentConsole.gateId ?? currentConsole.role}.{" "}
-                <a href={homePathFor(session)}>Go to your console</a>
-              </p>
-            </section>
+            {isReal && !session ? (
+              <section className="console-panel">
+                <p>
+                  Sign in to use this console. <a href="/login">Go to sign in</a>
+                </p>
+              </section>
+            ) : isReal && !canUseConsole ? (
+              <section className="console-panel">
+                <p role="alert">
+                  This account is signed in as {session.gateId ?? session.role}, not{" "}
+                  {currentConsole.gateId ?? currentConsole.role}.{" "}
+                  <a href={homePathFor(session)}>Go to your console</a>
+                </p>
+              </section>
+            ) : (
+              <>
+                <ConsoleView gateId={currentConsole.gateId} role={currentConsole.role} />
+                <LotMap api={api} realtime={realtime} />
+              </>
+            )}
+          </>
+        ) : isLogin ? (
+          isReal ? (
+            <LoginForm api={api} onSuccess={handleSignedIn} />
           ) : (
-            <>
-              <ConsoleView gateId={currentConsole.gateId} role={currentConsole.role} />
-              <LotMap api={api} realtime={realtime} />
-            </>
-          )}
-        </>
-      ) : isLogin ? (
-        isReal ? (
-          <LoginForm api={api} onSuccess={handleSignedIn} />
+            <section className="console-panel">
+              <p>
+                Sign-in isn&apos;t needed while running on mock data.{" "}
+                <a href="/">All consoles</a>
+              </p>
+            </section>
+          )
+        ) : isSimulation ? (
+          <>
+            <SimulationConsole api={api} />
+            <div className="sim-grid">
+              <SimulationStats api={api} />
+              <FareOverrideForm api={api} />
+            </div>
+            {/* In mock mode each tab has its own data, so the lot map must be on this page to show the effect. */}
+            <LotMap api={api} realtime={realtime} />
+          </>
         ) : (
-          <section className="console-panel">
-            <p>
-              Sign-in isn&apos;t needed while running on mock data.{" "}
-              <a href="/">All consoles</a>
-            </p>
-          </section>
-        )
-      ) : (
-        <nav className="console-grid" aria-label="Parking system consoles">
-          {consoles.map(({ path, label, role }) => (
-            <a className="console-card" href={path} key={path}>
-              <span className="card-icon" aria-hidden="true">
-                {role === "Admin" ? "A" : "G"}
-              </span>
-              <span className="card-copy">
-                <span className="card-title">{label}</span>
-                <span className="card-role">{role}</span>
-              </span>
-              <span className="card-arrow" aria-hidden="true">
-                →
-              </span>
-            </a>
-          ))}
-        </nav>
-      )}
+          <nav className="console-grid" aria-label="Parking system consoles">
+            {consoles.map(({ path, label, role }) => (
+              <a className="console-card" href={path} key={path}>
+                <span className="card-icon" aria-hidden="true">
+                  {role === "Admin" ? "A" : "G"}
+                </span>
+                <span className="card-copy">
+                  <span className="card-title">{label}</span>
+                  <span className="card-role">{role}</span>
+                </span>
+                <span className="card-arrow" aria-hidden="true">
+                  →
+                </span>
+              </a>
+            ))}
+          </nav>
+        )}
+      </main>
 
       <footer className="app-footer">
         <span>Live parking operations</span>
@@ -174,7 +198,7 @@ function App() {
           <span aria-hidden="true" /> Ready
         </span>
       </footer>
-    </main>
+    </div>
   );
 }
 

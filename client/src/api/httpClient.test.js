@@ -1,7 +1,11 @@
 import { createHttpApi } from "./httpClient.js";
 import { clearSession, getToken, saveSession } from "./session.js";
 
-const reply = (status, body) => ({ ok: status >= 200 && status < 300, status, json: async () => body });
+const reply = (status, body) => ({
+  ok: status >= 200 && status < 300,
+  status,
+  json: async () => body,
+});
 
 function setup({ token = "jwt-123", response = reply(200, {}), ...options } = {}) {
   const fetchImpl = jest.fn().mockResolvedValue(response);
@@ -32,7 +36,9 @@ describe("S3-T4 — real API transport", () => {
   test("login sends credentials without a token and does not treat 401 as an expired session", async () => {
     const onUnauthorized = jest.fn();
     const { api, fetchImpl } = setup({
-      response: reply(401, { error: { code: "INVALID_CREDENTIALS", message: "Invalid credentials" } }),
+      response: reply(401, {
+        error: { code: "INVALID_CREDENTIALS", message: "Invalid credentials" },
+      }),
       onUnauthorized,
     });
 
@@ -50,12 +56,18 @@ describe("S3-T4 — real API transport", () => {
 
   test("maps API error envelopes into recoverable UI errors", async () => {
     const { api } = setup({
-      response: reply(409, { error: { code: "LOT_FULL", message: "No 2W spots available" } }),
+      response: reply(409, {
+        error: { code: "LOT_FULL", message: "No 2W spots available" },
+      }),
     });
 
     await expect(
       api.createEntry({ plateNumber: "KA01", vehicleType: "2W", gateId: "Entry-1" }),
-    ).rejects.toMatchObject({ status: 409, code: "LOT_FULL", message: "No 2W spots available" });
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "LOT_FULL",
+      message: "No 2W spots available",
+    });
   });
 
   test("reports an unreachable server with a plain-language message", async () => {
@@ -73,7 +85,9 @@ describe("S3-T4 — real API transport", () => {
   test("signals an expired session on a 401 from a protected route", async () => {
     const onUnauthorized = jest.fn();
     const { api } = setup({
-      response: reply(401, { error: { code: "UNAUTHORIZED", message: "Invalid or expired token" } }),
+      response: reply(401, {
+        error: { code: "UNAUTHORIZED", message: "Invalid or expired token" },
+      }),
       onUnauthorized,
     });
 
@@ -82,17 +96,41 @@ describe("S3-T4 — real API transport", () => {
   });
 
   test.each([
-    ["createEntry", [{ plateNumber: "KA01", vehicleType: "4W", gateId: "Entry-1" }], "POST", "/api/entry/vehicles"],
+    [
+      "createEntry",
+      [{ plateNumber: "KA01", vehicleType: "4W", gateId: "Entry-1" }],
+      "POST",
+      "/api/entry/vehicles",
+    ],
     ["lookupTicket", ["TKT 1/2"], "GET", "/api/exit/lookup/TKT%201%2F2"],
     ["searchPlate", ["KA01AB1234"], "GET", "/api/exit/search?plateNumber=KA01AB1234"],
     ["processExit", [{ ticketId: "T1", gateId: "Exit-1" }], "POST", "/api/exit/process"],
-    ["notifyOverstay", [{ vehicleId: "T1", gateId: "Exit-1" }], "POST", "/api/overstay/notify"],
+    [
+      "notifyOverstay",
+      [{ vehicleId: "T1", gateId: "Exit-1" }],
+      "POST",
+      "/api/overstay/notify",
+    ],
     ["getOccupancy", [], "GET", "/api/admin/analytics/occupancy"],
     ["getRevenue", [], "GET", "/api/admin/analytics/revenue"],
     ["getTransactions", [{ plate: "KA01" }], "GET", "/api/admin/transactions?plate=KA01"],
     ["getTransactions", [], "GET", "/api/admin/transactions"],
     ["getAuditLog", [], "GET", "/api/admin/audit-log"],
-    ["forceRelease", ["ticket 1/2"], "POST", "/api/admin/vehicles/ticket%201%2F2/force-release"],
+    ["startSimulation", [{ ratePerMinute: 60 }], "POST", "/api/dev/simulate/start"],
+    ["stopSimulation", [], "POST", "/api/dev/simulate/stop"],
+    ["getSimulationStatus", [], "GET", "/api/dev/simulate/status"],
+    [
+      "setSimulationFareTiers",
+      [{ vehicleType: "4W", tiers: [] }],
+      "PUT",
+      "/api/dev/simulate/fare-tiers",
+    ],
+    [
+      "forceRelease",
+      ["ticket 1/2"],
+      "POST",
+      "/api/admin/vehicles/ticket%201%2F2/force-release",
+    ],
   ])("%s calls %s %s", async (method, args, httpMethod, url) => {
     const { api, fetchImpl } = setup();
     await api[method](...args);
@@ -102,13 +140,28 @@ describe("S3-T4 — real API transport", () => {
     expect(init.method).toBe(httpMethod);
   });
 
+  test("developer simulation routes send no token and pass the rate as a number", async () => {
+    const { api, fetchImpl } = setup();
+    await api.startSimulation({ ratePerMinute: 60 });
+
+    const [, init] = fetchImpl.mock.calls[0];
+    expect(init.headers.Authorization).toBeUndefined();
+    expect(JSON.parse(init.body)).toEqual({ ratePerMinute: 60 });
+  });
+
   test("normalises list responses to the shapes the consoles expect", async () => {
     const plates = setup({ response: reply(200, { records: [{ ticketId: "T1" }] }) });
     await expect(plates.api.searchPlate("KA01")).resolves.toEqual([{ ticketId: "T1" }]);
 
     const bareArray = setup({ response: reply(200, [{ ticketId: "T2" }]) });
-    await expect(bareArray.api.searchPlate("KA01")).resolves.toEqual([{ ticketId: "T2" }]);
-    await expect(bareArray.api.getTransactions()).resolves.toEqual({ records: [{ ticketId: "T2" }] });
-    await expect(bareArray.api.getAuditLog()).resolves.toEqual({ entries: [{ ticketId: "T2" }] });
+    await expect(bareArray.api.searchPlate("KA01")).resolves.toEqual([
+      { ticketId: "T2" },
+    ]);
+    await expect(bareArray.api.getTransactions()).resolves.toEqual({
+      records: [{ ticketId: "T2" }],
+    });
+    await expect(bareArray.api.getAuditLog()).resolves.toEqual({
+      entries: [{ ticketId: "T2" }],
+    });
   });
 });
