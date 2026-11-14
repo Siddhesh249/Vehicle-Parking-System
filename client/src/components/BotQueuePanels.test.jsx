@@ -36,7 +36,9 @@ describe("demo bot queue panels", () => {
     expect(onAdmitted).toHaveBeenCalledWith(
       expect.objectContaining({ ticketId: "TKT-1" }),
     );
-    expect(await screen.findByText(/ticket tkt-1 issued/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /ticket issued/i })).toBeInTheDocument();
+    expect(screen.getByText("TKT-1")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: /qr-style code/i })).toBeInTheDocument();
   });
 
   test("the exit operator scans, sees the fare and collects payment", async () => {

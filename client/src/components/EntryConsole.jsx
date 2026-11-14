@@ -41,7 +41,7 @@ export default function EntryConsole({ gateId, api }) {
   return (
     <>
       {typeof api.getEntryQueue === "function" && (
-        <BotEntryPanel api={api} gateId={gateId} onAdmitted={setTicket} />
+        <BotEntryPanel api={api} gateId={gateId} />
       )}
 
       <section className="console-panel">

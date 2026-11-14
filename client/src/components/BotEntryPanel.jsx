@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { errorMessage } from "../utils/format.js";
+import QrPattern from "./QrPattern.jsx";
+import { errorMessage, formatHours } from "../utils/format.js";
 import "./Console.css";
 
 const POLL_MS = 1500;
@@ -8,9 +9,9 @@ const POLL_MS = 1500;
 // still has to press Generate ticket, which creates a real spot + transaction.
 export default function BotEntryPanel({ api, gateId, onAdmitted }) {
   const [queue, setQueue] = useState(null);
+  const [issued, setIssued] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -34,10 +35,9 @@ export default function BotEntryPanel({ api, gateId, onAdmitted }) {
     if (!queue?.bot || busy) return;
     setBusy(true);
     setError("");
-    setNotice("");
     try {
       const ticket = await api.admitEntryBot({ botId: queue.bot.botId, gateId });
-      setNotice(`Ticket ${ticket.ticketId} issued. The car is now parked.`);
+      setIssued(ticket);
       onAdmitted?.(ticket);
       await load();
     } catch (err) {
@@ -63,7 +63,38 @@ export default function BotEntryPanel({ api, gateId, onAdmitted }) {
         </span>
       </div>
 
-      {!bot ? (
+      {issued ? (
+        <div className="ticket-card" role="status">
+          <div className="receipt-card__top">
+            <h4>Ticket issued</h4>
+            <span className="paid-chip">ENTRY</span>
+          </div>
+          <p className="ticket-id">{issued.ticketId}</p>
+          <dl className="detail-list">
+            <dt>Spot</dt>
+            <dd>{issued.spotNumber ?? issued.spotId}</dd>
+            <dt>Zone</dt>
+            <dd>{`${issued.zone} zone`}</dd>
+            {issued.intendedStayHours !== undefined && (
+              <>
+                <dt>Expected stay</dt>
+                <dd>{formatHours(issued.intendedStayHours)}</dd>
+              </>
+            )}
+          </dl>
+          <QrPattern value={issued.qrPayload ?? issued.ticketId} />
+          <p className="field-hint">
+            Hand this ticket to the driver. The same QR is scanned at the exit.
+          </p>
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => setIssued(null)}
+          >
+            Ready for next vehicle
+          </button>
+        </div>
+      ) : !bot ? (
         <div className="gate-empty">
           <span className="gate-empty__icon" aria-hidden="true">
             ✓
@@ -108,11 +139,6 @@ export default function BotEntryPanel({ api, gateId, onAdmitted }) {
       {error && (
         <p role="alert" className="console-error">
           {error}
-        </p>
-      )}
-      {notice && (
-        <p role="status" className="field-hint">
-          {notice}
         </p>
       )}
     </section>
