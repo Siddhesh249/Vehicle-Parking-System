@@ -63,8 +63,8 @@ Run locally on 2026-11-14 through `bash test.sh` (formatting, server tests, clie
 
 ### Client — Jest + React Testing Library
 
-- Test suites: 20 passed, 0 failed (20 total).
-- Tests: 142 passed, 0 failed (142 total).
+- Test suites: 21 passed, 0 failed (21 total).
+- Tests: 144 passed, 0 failed (144 total).
 
 ### Demo traffic and UI refinement pass
 

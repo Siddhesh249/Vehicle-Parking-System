@@ -310,8 +310,9 @@ app.get("/api/dev/simulate/fare-tiers", requireDevelopmentMode, async (_req, res
           afterHours,
           rate: ratePerHour,
         })),
-        lostTicketPenalty: override.lostTicketPenalty,
-        overstayPenalty: override.overstayPenalty,
+        lostTicketPenalty:
+          override.lostTicketPenalty ?? base[vehicleType].lostTicketPenalty,
+        overstayPenalty: override.overstayPenalty ?? base[vehicleType].overstayPenalty,
       };
     }
     return res.status(200).json(base);

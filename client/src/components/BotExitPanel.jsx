@@ -162,6 +162,20 @@ export default function BotExitPanel({ api, gateId, onSettled }) {
                   {bot.hasTicket ? "Ticket ready" : "No ticket"}
                 </span>
               </div>
+              <div className="scan-row">
+                {bot.hasTicket ? (
+                  <QrPattern value={bot.botId} />
+                ) : (
+                  <div className="lost-ticket-mark" aria-hidden="true">
+                    ?
+                  </div>
+                )}
+                <p className="field-hint scan-caption">
+                  {bot.hasTicket
+                    ? "The driver presents this QR ticket at the barrier. Scan it to calculate the fare."
+                    : "The driver cannot find the ticket. Scan the plate and apply the lost-ticket penalty."}
+                </p>
+              </div>
               <ol className="step-list">
                 <li className="step-list__done">
                   Vehicle drove up · waiting {bot.waitSeconds}s

@@ -968,3 +968,8 @@ button.text-link {
   padding: 8px 12px;
   min-height: 36px;
 }
+.scan-caption {
+  flex: 1;
+  min-width: 180px;
+  margin: 0;
+}
