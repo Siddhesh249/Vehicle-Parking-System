@@ -133,6 +133,15 @@ describe("S3-T4 — real API transport", () => {
       "PUT",
       "/api/admin/config/overstay",
     ],
+    ["startSimulation", [{ ratePerMinute: 60 }], "POST", "/api/dev/simulate/start"],
+    ["stopSimulation", [], "POST", "/api/dev/simulate/stop"],
+    ["getSimulationStatus", [], "GET", "/api/dev/simulate/status"],
+    [
+      "setSimulationFareTiers",
+      [{ vehicleType: "4W", tiers: [] }],
+      "PUT",
+      "/api/dev/simulate/fare-tiers",
+    ],
     [
       "forceRelease",
       ["ticket 1/2"],
@@ -146,6 +155,15 @@ describe("S3-T4 — real API transport", () => {
     const [calledUrl, init] = fetchImpl.mock.calls[0];
     expect(calledUrl).toBe(url);
     expect(init.method).toBe(httpMethod);
+  });
+
+  test("developer simulation routes send no token and pass the rate as a number", async () => {
+    const { api, fetchImpl } = setup();
+    await api.startSimulation({ ratePerMinute: 60 });
+
+    const [, init] = fetchImpl.mock.calls[0];
+    expect(init.headers.Authorization).toBeUndefined();
+    expect(JSON.parse(init.body)).toEqual({ ratePerMinute: 60 });
   });
 
   test("normalises list responses to the shapes the consoles expect", async () => {

@@ -29,7 +29,9 @@ const SIMULATED_HOUR_MS = REAL_SECONDS_PER_SIMULATED_HOUR * 1000;
 const DEFAULT_OVERSTAY_THRESHOLD_HOURS = 6;
 
 const simulatedHours = (startMs, endMs = Date.now()) =>
-  Math.max(0, (endMs - startMs) / 1000 / REAL_SECONDS_PER_SIMULATED_HOUR);
+  Math.round(
+    Math.max(0, (endMs - startMs) / 1000 / REAL_SECONDS_PER_SIMULATED_HOUR) * 100,
+  ) / 100;
 
 const fail = (status, message, code) => Promise.reject({ status, code, message });
 const round2 = (n) => Math.round(n * 100) / 100;
@@ -127,8 +129,6 @@ export function createMockApi({ delayMs = 150 } = {}) {
   const audit = [];
   let ticketSeq = 0;
   let receiptSeq = 0;
-  let simulationRunning = false;
-  let simulationRate = 0;
   let overstayThresholdHours = DEFAULT_OVERSTAY_THRESHOLD_HOURS;
 
   // Same-tab stand-in for the Socket.io spot:update / lot:snapshot broadcasts.
@@ -146,6 +146,42 @@ export function createMockApi({ delayMs = 150 } = {}) {
   });
   const emitSnapshot = () =>
     snapshotListeners.forEach((listener) => listener(snapshotPayload()));
+
+  const nextTicketId = () => {
+    ticketSeq += 1;
+    const stamp = new Date(now()).toISOString().slice(0, 10).replace(/-/g, "");
+    return `TKT-${stamp}-${String(ticketSeq).padStart(3, "0")}`;
+  };
+
+  // Synthetic arrival generator state (VPS-DEV-001).
+  const sim = {
+    timer: null,
+    rate: 0,
+    startedAt: null,
+    generated: 0,
+    ok: 0,
+    full: 0,
+    carry: 0,
+  };
+
+  const syntheticArrival = () => {
+    sim.generated += 1;
+    const record = park({
+      ticketId: nextTicketId(),
+      plateNumber: `SIM${Math.random().toString(36).slice(2, 14).toUpperCase()}`,
+      vehicleType: Math.random() < 0.65 ? "2W" : "4W",
+      entryTimestamp: new Date(now()).toISOString(),
+      gateId: Math.random() < 0.5 ? "Entry-1" : "Entry-2",
+    });
+    if (!record) {
+      sim.full += 1;
+      return;
+    }
+    sim.ok += 1;
+    log("VEHICLE_ENTRY");
+    emit(record.spotId, "reserved");
+    emitSnapshot();
+  };
 
   const log = (action, actorRole = "operator") =>
     audit.unshift({ action, actorRole, createdAt: new Date(now()).toISOString() });
@@ -277,63 +313,6 @@ export function createMockApi({ delayMs = 150 } = {}) {
       });
 
   return {
-    async getSimulationStatus() {
-      await wait();
-      return {
-        running: simulationRunning,
-        ratePerMinute: simulationRate,
-        generatedArrivals: 0,
-        successfulAllocations: 0,
-        fullLotArrivals: 0,
-        lastError: null,
-      };
-    },
-    async startSimulation({ ratePerMinute }) {
-      await wait();
-      if (!Number.isFinite(ratePerMinute) || ratePerMinute <= 0 || ratePerMinute > 600) {
-        return fail(
-          400,
-          "Rate must be between 1 and 600 arrivals per minute",
-          "INVALID_SIMULATION_RATE",
-        );
-      }
-      simulationRunning = true;
-      simulationRate = ratePerMinute;
-      return { status: "running" };
-    },
-    async stopSimulation() {
-      await wait();
-      simulationRunning = false;
-      simulationRate = 0;
-      return { status: "stopped" };
-    },
-    async setSimulationFareTiers(config) {
-      await wait();
-      if (!["2W", "4W"].includes(config?.vehicleType)) {
-        return fail(
-          400,
-          "vehicleType must be either '2W' or '4W'",
-          "INVALID_FARE_OVERRIDE",
-        );
-      }
-      try {
-        const tiers = normalizeTiers(config.tiers);
-        fareConfig[config.vehicleType] = {
-          ...fareConfig[config.vehicleType],
-          firstHourFree: config.firstHourFree !== false,
-          tiers,
-          ...(config.lostTicketPenalty === undefined
-            ? {}
-            : { lostTicketPenalty: Number(config.lostTicketPenalty) }),
-          ...(config.overstayPenalty === undefined
-            ? {}
-            : { overstayPenalty: Number(config.overstayPenalty) }),
-        };
-      } catch (error) {
-        return fail(400, error.message, "INVALID_FARE_OVERRIDE");
-      }
-      return { updated: true, vehicleType: config.vehicleType };
-    },
     async getLotStatus() {
       await wait();
       const { totalPct, byZone, occupied, total } = lotStatus();
@@ -357,9 +336,7 @@ export function createMockApi({ delayMs = 150 } = {}) {
         return fail(400, "Plate number and a valid vehicle type are required");
       if (active().some((r) => r.plateNumber === normalizedPlate))
         return fail(409, "This vehicle is already parked", "ALREADY_PARKED");
-      ticketSeq += 1;
-      const stamp = new Date(now()).toISOString().slice(0, 10).replace(/-/g, "");
-      const ticketId = `TKT-${stamp}-${String(ticketSeq).padStart(3, "0")}`;
+      const ticketId = nextTicketId();
       const record = park({
         ticketId,
         plateNumber: normalizedPlate,
@@ -673,6 +650,86 @@ export function createMockApi({ delayMs = 150 } = {}) {
           overstayPenalty: fareConfig[record.vehicleType].overstayPenalty,
         },
       };
+    },
+
+    // Simulation Console (SAD 4.3.7). No artificial delay, so the generator timing stays exact.
+    async startSimulation({ ratePerMinute } = {}) {
+      if (
+        typeof ratePerMinute !== "number" ||
+        !(ratePerMinute > 0) ||
+        ratePerMinute > 600
+      ) {
+        return fail(
+          400,
+          "ratePerMinute must be greater than 0 and at most 600",
+          "INVALID_SIMULATION_RATE",
+        );
+      }
+      if (sim.timer) clearInterval(sim.timer);
+      Object.assign(sim, {
+        rate: ratePerMinute,
+        startedAt: now(),
+        generated: 0,
+        ok: 0,
+        full: 0,
+        carry: 0,
+      });
+      sim.timer = setInterval(() => {
+        sim.carry += sim.rate / 60;
+        const due = Math.floor(sim.carry);
+        sim.carry -= due;
+        for (let i = 0; i < due; i += 1) syntheticArrival();
+      }, 1000);
+      return { status: "running" };
+    },
+
+    async stopSimulation() {
+      if (sim.timer) clearInterval(sim.timer);
+      Object.assign(sim, { timer: null, rate: 0, startedAt: null, carry: 0 });
+      return { status: "stopped" };
+    },
+
+    async getSimulationStatus() {
+      await wait();
+      return {
+        running: sim.timer !== null,
+        ratePerMinute: sim.rate,
+        startedAt: sim.startedAt ? new Date(sim.startedAt).toISOString() : null,
+        generatedArrivals: sim.generated,
+        successfulAllocations: sim.ok,
+        fullLotArrivals: sim.full,
+        lastError: null,
+      };
+    },
+
+    async setSimulationFareTiers(config = {}) {
+      const { vehicleType, tiers, firstHourFree, lostTicketPenalty, overstayPenalty } =
+        config;
+      if (!["2W", "4W"].includes(vehicleType)) {
+        return fail(
+          400,
+          "vehicleType must be either '2W' or '4W'",
+          "INVALID_FARE_OVERRIDE",
+        );
+      }
+      let normalized;
+      try {
+        normalized = normalizeTiers(tiers);
+      } catch (error) {
+        return fail(400, error.message, "INVALID_FARE_OVERRIDE");
+      }
+      fareConfig[vehicleType] = {
+        ...fareConfig[vehicleType],
+        firstHourFree: firstHourFree !== false,
+        tiers: normalized,
+        ...(lostTicketPenalty === undefined
+          ? {}
+          : { lostTicketPenalty: Number(lostTicketPenalty) }),
+        ...(overstayPenalty === undefined
+          ? {}
+          : { overstayPenalty: Number(overstayPenalty) }),
+      };
+      return { updated: true, vehicleType };
     },
 
     // Same interface as the Socket.io connection: connect(handlers) returns a disconnect function.

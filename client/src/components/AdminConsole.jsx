@@ -265,7 +265,7 @@ export default function AdminConsole({ api, realtime }) {
               <p className="field-hint">No transactions found.</p>
             ) : (
               <div className="table-wrap">
-                <table>
+                <table aria-label="Transactions">
                   <thead>
                     <tr>
                       <th scope="col">Ticket</th>
@@ -316,7 +316,7 @@ export default function AdminConsole({ api, realtime }) {
             <p className="field-hint">No audit entries yet.</p>
           ) : (
             <div className="table-wrap">
-              <table>
+              <table aria-label="Audit log">
                 <thead>
                   <tr>
                     <th scope="col">Action</th>
