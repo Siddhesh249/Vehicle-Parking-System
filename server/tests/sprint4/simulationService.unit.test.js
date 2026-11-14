@@ -8,8 +8,7 @@ jest.mock("../../services/allocationService", () => ({ allocateSpot: jest.fn() }
 describe("Sprint 4 T2 simulation backend", () => {
   afterEach(() => {
     jest.useRealTimers();
-    simulationService.stopSimulation();
-    simulationService.clearFareOverrides();
+    simulationService.resetSimulationForTests();
     jest.clearAllMocks();
   });
 
@@ -67,17 +66,90 @@ describe("Sprint 4 T2 simulation backend", () => {
 
     simulationService.startSimulation({ ratePerMinute: 60 });
     await jest.advanceTimersByTimeAsync(1000);
+
+    const gateId = ["Entry-1", "Entry-2"].find(
+      (gate) => simulationService.getEntryQueue(gate).bot,
+    );
+    const { botId } = simulationService.getEntryQueue(gateId).bot;
+    await expect(
+      simulationService.admitEntryBot({ botId, gateId, operatorId: "operator-1" }),
+    ).rejects.toMatchObject({ code: "LOT_FULL" });
+
     expect(simulationService.getSimulationState()).toEqual(
       expect.objectContaining({
         generatedArrivals: 1,
         successfulAllocations: 0,
         fullLotArrivals: 1,
+        waitingEntry: 0,
       }),
     );
 
     await jest.advanceTimersByTimeAsync(1000);
-    expect(allocateSpot).toHaveBeenCalledTimes(2);
+    expect(allocateSpot).toHaveBeenCalledTimes(1);
     expect(simulationService.getSimulationState().generatedArrivals).toBe(2);
+  });
+
+  test("a parked bot moves to an exit queue when its stay elapses", async () => {
+    jest.useFakeTimers();
+    allocateSpot.mockResolvedValue({
+      ticketId: "TKT-SIM-2",
+      transactionId: "transaction-2",
+      spotId: "spot-2",
+      spotNumber: "4W-001",
+      zone: "4W",
+      entryTimestamp: new Date(),
+    });
+    simulationService.startSimulation({ ratePerMinute: 60 });
+    await jest.advanceTimersByTimeAsync(1000);
+
+    const gateId = ["Entry-1", "Entry-2"].find(
+      (gate) => simulationService.getEntryQueue(gate).bot,
+    );
+    const bot = simulationService.getEntryQueue(gateId).bot;
+    const ticket = await simulationService.admitEntryBot({
+      botId: bot.botId,
+      gateId,
+      operatorId: "operator-1",
+    });
+    expect(simulationService.getSimulationState().parked).toBe(1);
+
+    // Longest demo stay is below 12 simulated hours (60 real seconds).
+    await jest.advanceTimersByTimeAsync(61000);
+
+    const exitGate = ["Exit-1", "Exit-2"].find(
+      (gate) => simulationService.getExitQueue(gate).bot,
+    );
+    const queued = simulationService.getExitQueue(exitGate);
+    expect(queued.bot).toBeTruthy();
+    expect(simulationService.getSimulationState()).toEqual(
+      expect.objectContaining({ parked: 0, waitingExit: 1 }),
+    );
+
+    const details = simulationService.inspectExitBot({
+      botId: queued.bot.botId,
+      gateId: exitGate,
+    });
+    expect(details).toEqual(
+      expect.objectContaining({
+        plateNumber: bot.plateNumber,
+        hasTicket: expect.any(Boolean),
+        ticketId: details.hasTicket ? ticket.ticketId : null,
+      }),
+    );
+
+    simulationService.markBotSettled({
+      ticketId: ticket.ticketId,
+      plateNumber: bot.plateNumber,
+      fare: 42,
+    });
+    expect(simulationService.getSimulationState()).toEqual(
+      expect.objectContaining({
+        waitingExit: 0,
+        completedExits: 1,
+        revenueCollected: 42,
+      }),
+    );
+    jest.useRealTimers();
   });
 
   test("rejects a rate above the supported maximum", () => {
@@ -119,18 +191,46 @@ describe("Sprint 4 T2 simulation backend", () => {
     ).toThrow();
   });
 
-  test("generator sends synthetic arrivals to the allocation service", async () => {
+  test("the entry operator's ticket request sends the bot to the allocation service", async () => {
     jest.useFakeTimers();
-    allocateSpot.mockResolvedValue({ ticketId: "SIM-1" });
+    allocateSpot.mockResolvedValue({
+      ticketId: "TKT-SIM-1",
+      transactionId: "transaction-1",
+      spotId: "spot-1",
+      spotNumber: "2W-001",
+      zone: "2W",
+      entryTimestamp: new Date(),
+    });
     simulationService.startSimulation({ ratePerMinute: 60 });
     await jest.advanceTimersByTimeAsync(1000);
+
+    const gateId = ["Entry-1", "Entry-2"].find(
+      (gate) => simulationService.getEntryQueue(gate).bot,
+    );
+    const bot = simulationService.getEntryQueue(gateId).bot;
+    const ticket = await simulationService.admitEntryBot({
+      botId: bot.botId,
+      gateId,
+      operatorId: "operator-1",
+    });
+
     expect(allocateSpot).toHaveBeenCalledTimes(1);
     expect(allocateSpot).toHaveBeenCalledWith(
       expect.objectContaining({
         vehicleType: expect.stringMatching(/^(2W|4W)$/),
-        gateId: expect.stringMatching(/^Entry-[12]$/),
-        plateNumber: expect.stringMatching(/^SIM[A-F0-9]{12}$/),
+        gateId,
+        operatorId: "operator-1",
+        plateNumber: expect.stringMatching(/^BOT[A-F0-9]{7}$/),
       }),
+    );
+    expect(ticket).toEqual(
+      expect.objectContaining({
+        ticketId: "TKT-SIM-1",
+        intendedStayHours: expect.any(Number),
+      }),
+    );
+    expect(simulationService.getSimulationState()).toEqual(
+      expect.objectContaining({ parked: 1, successfulAllocations: 1, waitingEntry: 0 }),
     );
     jest.useRealTimers();
   });

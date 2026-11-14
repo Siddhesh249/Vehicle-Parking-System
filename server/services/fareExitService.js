@@ -48,6 +48,80 @@ async function searchByPlate(plateNumber) {
   return [transaction];
 }
 
+/**
+ * Read-only fare preview used by the exit console after scanning a ticket.
+ * It applies exactly the same rules as processExit (including the lost-ticket
+ * penalty) but never mutates the transaction.
+ */
+async function quoteExit({ ticketId, plateNumber, exitTimestamp = new Date() } = {}) {
+  const exitTime = new Date(exitTimestamp);
+  if (!Number.isFinite(exitTime.getTime())) {
+    throw serviceError("exitTimestamp must be a valid date", "INVALID_REQUEST", 400);
+  }
+
+  const lostTicket = !(typeof ticketId === "string" && ticketId.trim());
+  if (lostTicket && !(typeof plateNumber === "string" && plateNumber.trim())) {
+    throw serviceError("A ticketId or plateNumber is required", "INVALID_REQUEST", 400);
+  }
+
+  let transaction;
+  try {
+    if (!lostTicket) transaction = await lookupByTicket(ticketId);
+    else transaction = (await searchByPlate(plateNumber))[0];
+  } catch (error) {
+    if (error.code === "VEHICLE_NOT_FOUND") {
+      throw serviceError(
+        "Vehicle has already exited or was not found",
+        "ALREADY_EXITED",
+        409,
+      );
+    }
+    throw error;
+  }
+
+  const durationMilliseconds =
+    exitTime.getTime() - new Date(transaction.entryTimestamp).getTime();
+  if (!Number.isFinite(durationMilliseconds) || durationMilliseconds < 0) {
+    throw serviceError(
+      "Exit timestamp cannot be before entry timestamp",
+      "INVALID_REQUEST",
+      400,
+    );
+  }
+  const durationHours = simulatedHoursBetween(transaction.entryTimestamp, exitTime);
+  const fareConfig = await getFareConfig(transaction.vehicleType);
+  const fareDetails = calculateFareDetails(
+    transaction.entryTimestamp,
+    exitTime,
+    transaction.vehicleType,
+    { lostTicket },
+    fareConfig,
+  );
+
+  return {
+    ticketId: transaction.ticketId,
+    plateNumber: transaction.plateNumber,
+    vehicleType: transaction.vehicleType,
+    spotId: String(transaction.spotId),
+    entryGateId: transaction.entryGateId,
+    entryTimestamp: transaction.entryTimestamp,
+    exitTimestamp: exitTime,
+    durationSeconds: durationHours * 3600,
+    durationHours,
+    lostTicket,
+    fare: fareDetails.total,
+    breakdown: {
+      baseFare: fareDetails.baseFare,
+      ...(fareDetails.lostTicketPenalty
+        ? { lostTicketPenalty: fareDetails.lostTicketPenalty }
+        : {}),
+      ...(fareDetails.overstayPenalty
+        ? { overstayPenalty: fareDetails.overstayPenalty }
+        : {}),
+    },
+  };
+}
+
 async function processExit({
   ticketId,
   plateNumber,
@@ -199,4 +273,4 @@ async function processExit({
   };
 }
 
-module.exports = { lookupByTicket, searchByPlate, processExit };
+module.exports = { lookupByTicket, searchByPlate, quoteExit, processExit };

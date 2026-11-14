@@ -15,18 +15,19 @@ All models use Mongoose schemas and export the registered model when one already
 
 ## Services and routes
 
-| Area | Endpoints |
-| --- | --- |
-| Auth | `POST /api/auth/login` |
-| Lot | `GET /api/lot/status` |
-| Entry | `POST /api/entry/vehicles` |
-| Exit | `GET /api/exit/lookup/:ticketId`, `GET /api/exit/search`, `POST /api/exit/process` |
-| Overstay | `POST /api/overstay/notify`, `GET /api/admin/overstays` |
-| Admin analytics | `GET /api/admin/analytics/occupancy`, `GET /api/admin/analytics/revenue` |
-| Admin records | `GET /api/admin/transactions`, `GET /api/admin/audit-log` |
-| Admin config | `GET/PUT /api/admin/config/fare-tiers`, `GET/PUT /api/admin/config/spots` |
-| Admin override | `POST /api/admin/vehicles/:id/force-release` |
-| Developer simulation | `GET /api/dev/simulate/status`, `POST /api/dev/simulate/start`, `POST /api/dev/simulate/stop`, `PUT /api/dev/simulate/fare-tiers` |
+| Area                 | Endpoints                                                                                                                                                                                                 |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Auth                 | `POST /api/auth/login`                                                                                                                                                                                    |
+| Lot                  | `GET /api/lot/status`                                                                                                                                                                                     |
+| Entry                | `POST /api/entry/vehicles`                                                                                                                                                                                |
+| Exit                 | `GET /api/exit/lookup/:ticketId`, `GET /api/exit/search`, `POST /api/exit/process`                                                                                                                        |
+| Overstay             | `POST /api/overstay/notify`, `GET /api/admin/overstays`                                                                                                                                                   |
+| Admin analytics      | `GET /api/admin/analytics/occupancy`, `GET /api/admin/analytics/revenue`                                                                                                                                  |
+| Admin records        | `GET /api/admin/transactions`, `GET /api/admin/audit-log`, `GET /api/admin/database`                                                                                                                      |
+| Admin config         | `GET/PUT /api/admin/config/fare-tiers`, `GET/PUT /api/admin/config/spots`                                                                                                                                 |
+| Admin override       | `POST /api/admin/vehicles/:id/force-release`                                                                                                                                                              |
+| Developer simulation | `GET /api/dev/simulate/status`, `POST /api/dev/simulate/start`, `POST /api/dev/simulate/stop`, `PUT /api/dev/simulate/rate`, `GET/PUT/DELETE /api/dev/simulate/fare-tiers`                                |
+| Demo bot queues      | `GET /api/dev/simulate/queue/entry`, `POST /api/dev/simulate/queue/entry/admit`, `GET /api/dev/simulate/queue/exit`, `POST /api/dev/simulate/queue/exit/scan`, `POST /api/dev/simulate/queue/exit/settle` |
 
 All protected routes require a Bearer JWT. Gate operators are scoped server-side
 to exactly one gate. Admin routes and the overstay feed reject operator tokens.
@@ -34,6 +35,20 @@ The simulation routes return 404 in production or when `DISABLE_SIMULATION=true`
 
 Socket.io events are `identify` (client → server), `lot:snapshot`, `spot:update`,
 and `overstay:alert` (server → the authenticated/admin rooms).
+
+## Demo bot fleet
+
+`services/simulationService.js` keeps an in-memory fleet of demo customers. A
+tick spawns arrivals at the configured rate (up to 8 waiting per gate), parks
+each car only when the signed-in entry operator calls the admit route, and moves
+it to an exit queue after its intended simulated stay. The exit operator scans
+the bot to get a fare quote and then settles it through the ordinary
+`processExit` path, so transactions, audit entries and revenue are real. The
+`markBotSettled` hook also retires a bot when an admin force-releases it.
+
+`services/databaseService.js` powers `GET /api/admin/database`: it returns up to
+250 rows from each collection for the admin's read-only database browser. The
+users projection strips `passwordHash`.
 
 ## Fare calculation
 

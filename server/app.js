@@ -10,6 +10,7 @@ const { allocateSpot } = require("./services/allocationService");
 const {
   lookupByTicket,
   searchByPlate,
+  quoteExit,
   processExit,
 } = require("./services/fareExitService");
 const { getOccupancy, getRevenue } = require("./services/analyticsService");
@@ -34,10 +35,19 @@ const { verifyToken } = require("./utils/jwtUtils");
 const { simulatedHoursBetween, timeScaleInfo } = require("./utils/simulatedTime");
 const {
   startSimulation,
+  setSimulationRate,
   stopSimulation,
   getSimulationState,
   setFareOverride,
+  getFareOverride,
+  clearFareOverrides,
+  getEntryQueue,
+  getExitQueue,
+  admitEntryBot,
+  inspectExitBot,
+  markBotSettled,
 } = require("./services/simulationService");
+const { getDatabaseSnapshot } = require("./services/databaseService");
 const Spot = require("./models/Spot");
 const Transaction = require("./models/Transaction");
 
@@ -287,6 +297,140 @@ app.put("/api/dev/simulate/fare-tiers", requireDevelopmentMode, (req, res) => {
   }
 });
 
+// Current effective fare table for the override editor, including overrides.
+app.get("/api/dev/simulate/fare-tiers", requireDevelopmentMode, async (_req, res) => {
+  try {
+    const base = await getFareConfig();
+    for (const vehicleType of ["2W", "4W"]) {
+      const override = getFareOverride(vehicleType)?.[vehicleType];
+      if (!override) continue;
+      base[vehicleType] = {
+        firstHourFree: override.firstHourFree,
+        tiers: override.tiers.map(({ afterHours, ratePerHour }) => ({
+          afterHours,
+          rate: ratePerHour,
+        })),
+        lostTicketPenalty: override.lostTicketPenalty,
+        overstayPenalty: override.overstayPenalty,
+      };
+    }
+    return res.status(200).json(base);
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
+
+app.delete("/api/dev/simulate/fare-tiers", requireDevelopmentMode, (req, res) => {
+  const vehicleType = req.query?.vehicleType;
+  if (vehicleType !== undefined && !["2W", "4W"].includes(vehicleType)) {
+    return res.status(400).json({
+      error: { code: "INVALID_REQUEST", message: "vehicleType must be 2W or 4W" },
+    });
+  }
+  return res.status(200).json(clearFareOverrides(vehicleType));
+});
+
+// Change the traffic rate while the fleet keeps moving (no counter reset).
+app.put("/api/dev/simulate/rate", requireDevelopmentMode, (req, res) => {
+  try {
+    return res
+      .status(200)
+      .json(setSimulationRate({ ratePerMinute: req.body?.ratePerMinute }));
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
+
+// Operator-driven bot queues. Requests still carry the operator's real token,
+// so every ticket/payment is attributed to the signed-in gate account.
+app.get(
+  "/api/dev/simulate/queue/entry",
+  requireDevelopmentMode,
+  authenticateToken,
+  requireGate("Entry-"),
+  (req, res) => {
+    return res.status(200).json(getEntryQueue(req.user.gateId));
+  },
+);
+
+app.post(
+  "/api/dev/simulate/queue/entry/admit",
+  requireDevelopmentMode,
+  authenticateToken,
+  requireGate("Entry-"),
+  async (req, res) => {
+    try {
+      const result = await admitEntryBot({
+        botId: req.body?.botId,
+        gateId: req.user.gateId,
+        operatorId: req.user.userId,
+      });
+      broadcastSpotUpdate(result.spotId, "reserved");
+      broadcastLotSnapshot();
+      return res.status(201).json(result);
+    } catch (error) {
+      return sendServiceError(res, error);
+    }
+  },
+);
+
+app.get(
+  "/api/dev/simulate/queue/exit",
+  requireDevelopmentMode,
+  authenticateToken,
+  requireGate("Exit-"),
+  (req, res) => {
+    return res.status(200).json(getExitQueue(req.user.gateId));
+  },
+);
+
+app.post(
+  "/api/dev/simulate/queue/exit/scan",
+  requireDevelopmentMode,
+  authenticateToken,
+  requireGate("Exit-"),
+  async (req, res) => {
+    try {
+      const bot = inspectExitBot({ botId: req.body?.botId, gateId: req.user.gateId });
+      const quote = await quoteExit({
+        ticketId: bot.hasTicket ? bot.ticketId : undefined,
+        plateNumber: bot.plateNumber,
+      });
+      return res.status(200).json({ ...bot, quote });
+    } catch (error) {
+      return sendServiceError(res, error);
+    }
+  },
+);
+
+app.post(
+  "/api/dev/simulate/queue/exit/settle",
+  requireDevelopmentMode,
+  authenticateToken,
+  requireGate("Exit-"),
+  async (req, res) => {
+    try {
+      const bot = inspectExitBot({ botId: req.body?.botId, gateId: req.user.gateId });
+      const receipt = await processExit({
+        ticketId: bot.hasTicket ? bot.ticketId : undefined,
+        plateNumber: bot.plateNumber,
+        gateId: req.user.gateId,
+        operatorId: req.user.userId,
+      });
+      markBotSettled({
+        ticketId: receipt.ticketId,
+        plateNumber: receipt.plateNumber,
+        fare: receipt.fare,
+      });
+      broadcastSpotUpdate(receipt.spotId, "free");
+      broadcastLotSnapshot();
+      return res.status(200).json(receipt);
+    } catch (error) {
+      return sendServiceError(res, error);
+    }
+  },
+);
+
 app.post("/api/auth/login", async (req, res) => {
   const { username, password } = req.body || {};
   if (
@@ -373,6 +517,12 @@ app.post(
         gateId: req.user.gateId,
         operatorId: req.user.userId,
       });
+      // If this exit belonged to a simulated car, retire it from the bot queue.
+      markBotSettled({
+        ticketId: receipt.ticketId,
+        plateNumber: receipt.plateNumber,
+        fare: receipt.fare,
+      });
       broadcastSpotUpdate(receipt.spotId, "free");
       broadcastLotSnapshot();
       return res.status(200).json(receipt);
@@ -424,6 +574,15 @@ app.get("/api/admin/audit-log", authenticateToken, requireAdmin, async (req, res
   try {
     const { action, actor, from, to } = req.query;
     return res.status(200).json(await listAuditEntries({ action, actor, from, to }));
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
+
+// Raw database browser for the admin's root-level access (VPS-F-054).
+app.get("/api/admin/database", authenticateToken, requireAdmin, async (_req, res) => {
+  try {
+    return res.status(200).json(await getDatabaseSnapshot());
   } catch (error) {
     return sendServiceError(res, error);
   }
@@ -570,6 +729,11 @@ app.post(
   async (req, res) => {
     try {
       const result = await forceRelease({ vehicleId: req.params.id, admin: req.user });
+      markBotSettled({
+        ticketId: result.ticketId,
+        plateNumber: result.plateNumber,
+        fare: result.fare,
+      });
       broadcastSpotUpdate(result.spotId, "free");
       broadcastLotSnapshot();
       return res.status(200).json(result);
