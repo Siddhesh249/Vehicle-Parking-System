@@ -11,6 +11,7 @@ CLIENT_PORT="${CLIENT_PORT:-5173}"
 APP_HOST="${APP_HOST:-localhost}"
 API_URL="http://127.0.0.1:${SERVER_PORT}"
 APP_URL="http://${APP_HOST}:${CLIENT_PORT}"
+SIM_URL="${APP_URL}/dev/simulate"
 SERVER_LOG="${TMPDIR:-/tmp}/vps-server.log"
 CLIENT_LOG="${TMPDIR:-/tmp}/vps-client.log"
 SERVER_PID=""
@@ -66,19 +67,35 @@ wait_for_client() {
   return 1
 }
 
-open_browser() {
+open_url() {
+  local url="$1"
   if [[ "${NO_BROWSER:-0}" == "1" ]]; then
     return 0
   fi
   if command -v xdg-open >/dev/null 2>&1; then
-    xdg-open "$APP_URL" >/dev/null 2>&1 &
+    xdg-open "$url" >/dev/null 2>&1 &
   elif command -v open >/dev/null 2>&1; then
-    open "$APP_URL" >/dev/null 2>&1 &
+    open "$url" >/dev/null 2>&1 &
   elif command -v cmd.exe >/dev/null 2>&1; then
-    cmd.exe /c start "" "$APP_URL" >/dev/null 2>&1 &
-  else
-    log "Open ${APP_URL} in your browser (no browser opener was found)."
+    cmd.exe /c start "" "$url" >/dev/null 2>&1 &
   fi
+}
+
+open_browser() {
+  if [[ "${NO_BROWSER:-0}" == "1" ]]; then
+    return 0
+  fi
+  if ! command -v xdg-open >/dev/null 2>&1 \
+    && ! command -v open >/dev/null 2>&1 \
+    && ! command -v cmd.exe >/dev/null 2>&1; then
+    log "Open ${APP_URL} and ${SIM_URL} in your browser (no browser opener was found)."
+    return 0
+  fi
+  # The simulation console is not linked from the role UIs, so open it directly.
+  # A short stagger keeps some browsers from collapsing both tabs into one window.
+  open_url "$APP_URL"
+  sleep 1
+  open_url "$SIM_URL"
 }
 
 command -v node >/dev/null 2>&1 || fail "Node.js is required. Install Node.js 24 LTS and try again."
@@ -136,6 +153,7 @@ log "Starting the frontend on ${APP_URL}"
 (
   cd client
   VITE_API_MODE=real API_PROXY_TARGET="$API_URL" \
+    VITE_DEMO_PASSWORD="${SEED_PASSWORD:-password123}" \
     exec node ./node_modules/vite/bin/vite.js \
     --host 127.0.0.1 --port "$CLIENT_PORT" --strictPort
 ) >"$CLIENT_LOG" 2>&1 &
@@ -148,6 +166,7 @@ fi
 
 log "Parkwise is running"
 printf '  App:      %s\n' "$APP_URL"
+printf '  Scenario: %s\n' "$SIM_URL"
 printf '  API:      %s/api/health\n' "$API_URL"
 printf '  Accounts: entry1, entry2, exit1, exit2, admin (password: %s)\n' "${SEED_PASSWORD:-password123}"
 printf '  Logs:     %s and %s\n' "$SERVER_LOG" "$CLIENT_LOG"

@@ -32,7 +32,9 @@ The app opens at **http://localhost:5173**. The API listens on **http://127.0.0.
 
 Set `SEED_PASSWORD` before seeding to use a different local demo password. The seed is idempotent and safe to re-run.
 
-The developer-only Simulation Console is at **http://localhost:5173/dev/simulate**. It is reachable only by direct URL, never from a gate or admin navigation.
+The app opens on the sign-in page. Demo-account buttons pre-fill the username and password for the selected role; the credentials still go through the normal bcrypt + JWT login. Each browser tab keeps its own session, so the five-tab demo works without signing in again.
+
+The developer-only Simulation Console is at **http://localhost:5173/dev/simulate**. `./run.sh` opens it alongside the app, and it is reachable only by direct URL, never from a gate or admin navigation.
 
 ## 3. The core idea, in one paragraph
 
@@ -79,8 +81,10 @@ The Admin dashboard can edit the fare tiers, first-hour policy, lost-ticket/over
 
 ## 9. Simulation Console (developer-only)
 
-- Generates synthetic arrivals at 1–600 per minute across both entry gates.
-- Applies runtime fare-tier overrides, so a demo can show a changed fare without editing the database or restarting the server.
+- Spawns a fleet of demo "bot" cars at 1–600 per minute across both entry gates. Each car has an internal intended parking duration and a small chance of a lost ticket.
+- Cars queue at the entry gate. The entry operator presses **Generate ticket**, which creates a real spot allocation and transaction exactly like a manual entry.
+- When its intended stay ends, each car drives to an exit gate and appears in that operator's queue. The exit operator presses **Scan ticket** (or handles a lost-ticket plate lookup), sees the fare, then presses **Payment collected** to settle it. Revenue updates in the admin dashboard as cars leave.
+- Can change the traffic rate while running and apply/clear runtime fare-tier overrides, so a demo can show a changed fare without editing the database or restarting the server.
 - Is excluded from the Gate Operator and Admin role navigation. In production (`NODE_ENV=production`) or when `DISABLE_SIMULATION=true`, its routes return 404.
 - Its k6 load-test companion is `loadtest/entry-concurrency.js`.
 
@@ -90,22 +94,24 @@ The Admin dashboard can edit the fare tiers, first-hour policy, lost-ticket/over
 - The parking lot is shown as a live grid of spots, split visually into 2W and 4W zones: grey = free, green = occupied (with a live hours timer), blinking red = overstayed. Every spot also has a text status label, so status is never conveyed by colour alone.
 - Exit operators can click a blinking overstayed spot to notify the Admin; the first click disables repeat notifications for that vehicle and confirms “Notification sent to admin.”
 - All open sessions (both entry consoles, both exit consoles, admin dashboard) show an **identical, live-updating** view — the Socket.io broadcast requirement and the main "wow" moment for a demo.
-- Admin dashboard additionally has revenue-over-time and occupancy-over-time charts, a searchable full transaction/audit log, overstay alerts with force-release, and fare/spot configuration — none of which operators can see.
+- Admin dashboard additionally has revenue-over-time and occupancy-over-time charts, a searchable full transaction/audit log with fixed-height scrolling tables, a raw database browser, overstay alerts with force-release, and fare/spot configuration — none of which operators can see.
+- Tables and logs scroll inside a fixed-height panel instead of stretching the page, and the database browser shows every column with horizontally scrollable rows when needed.
 
 ## 11. Configuration
 
-| Variable                    | Where         | Default                 | Purpose                                        |
-| --------------------------- | ------------- | ----------------------- | ---------------------------------------------- |
-| `MONGO_URI`                 | `server/.env` | local `vehicle_parking` | MongoDB connection string                      |
-| `PORT`                      | `server/.env` | `5000`                  | API port                                       |
-| `CLIENT_URL`                | `server/.env` | `http://localhost:5173` | Allowed browser origin                         |
-| `JWT_SECRET`                | `server/.env` | dev fallback            | JWT signing secret; required in production     |
-| `SIMULATED_HOUR_SECONDS`    | environment   | `5`                     | Real seconds that represent one billed hour    |
-| `OVERSTAY_SCAN_INTERVAL_MS` | environment   | `5000`                  | Background overstay scan interval              |
-| `DISABLE_SIMULATION`        | environment   | unset                   | Set `true` to hide developer simulation routes |
-| `SEED_DEMO_DATA`            | environment   | `true`                  | Set `false` to omit sample vehicles/history    |
-| `VITE_API_MODE`             | client env    | `mock`                  | `real` talks to the backend; `mock` is offline |
-| `CLIENT_PORT` / `PORT`      | `./run.sh`    | `5173` / `5000`         | Ports used by the convenience launcher         |
+| Variable                    | Where         | Default                 | Purpose                                             |
+| --------------------------- | ------------- | ----------------------- | --------------------------------------------------- |
+| `MONGO_URI`                 | `server/.env` | local `vehicle_parking` | MongoDB connection string                           |
+| `PORT`                      | `server/.env` | `5000`                  | API port                                            |
+| `CLIENT_URL`                | `server/.env` | `http://localhost:5173` | Allowed browser origin                              |
+| `JWT_SECRET`                | `server/.env` | dev fallback            | JWT signing secret; required in production          |
+| `SIMULATED_HOUR_SECONDS`    | environment   | `5`                     | Real seconds that represent one billed hour         |
+| `OVERSTAY_SCAN_INTERVAL_MS` | environment   | `5000`                  | Background overstay scan interval                   |
+| `DISABLE_SIMULATION`        | environment   | unset                   | Set `true` to hide developer simulation routes      |
+| `SEED_DEMO_DATA`            | environment   | `true`                  | Set `false` to omit sample vehicles/history         |
+| `VITE_API_MODE`             | client env    | `mock`                  | `real` talks to the backend; `mock` is offline      |
+| `VITE_DEMO_PASSWORD`        | client env    | `password123`           | Password used by the one-click demo account buttons |
+| `CLIENT_PORT` / `PORT`      | `./run.sh`    | `5173` / `5000`         | Ports used by the convenience launcher              |
 
 Copy `server/.env.example` to `server/.env` for a custom local setup. Never commit `.env` files or real credentials.
 
@@ -129,7 +135,7 @@ npm --prefix server run seed
 npm --prefix server run dev
 ```
 
-Then set `VITE_API_MODE=real` in `client/.env` and run `npm --prefix client run dev` (see `client/README.md`).
+Then set `VITE_API_MODE=real` in `client/.env` and run `npm --prefix client run dev` (see `client/README.md`). `./run.sh` does this automatically and also opens `/dev/simulate` in a second tab.
 
 The server JWT secret is read from `JWT_SECRET`. The development fallback is for local tests only; production startup must provide a secret. The client defaults to the in-memory mock so UI work can run without a backend; `VITE_API_MODE=real` switches it to the real REST and Socket.io transport.
 
