@@ -14,8 +14,10 @@ npm run build
 ```
 
 Run the app at the route for a console, such as `/entry-1` or `/admin`.
+Opening `/` or `/login` shows the sign-in page first; demo buttons pre-fill each
+gate account, but the credentials still go through the normal login API.
 The Simulation Console is at `/dev/simulate` and is intentionally absent from
-the role navigation.
+the role navigation. `./run.sh` opens it in a second tab.
 
 ## Talking to the backend
 
@@ -26,8 +28,9 @@ the real API and live Socket.io updates:
 2. Seed the demo accounts and initial spots with `npm --prefix server run seed`.
 3. Set `VITE_API_MODE=real` in `client/.env`, or start through the repository
    root launcher (`./run.sh`) which sets it for you.
-4. Open `/login` and sign in as `entry1`, `entry2`, `exit1`, `exit2`, or
-   `admin`. The local seed password is `password123` unless `SEED_PASSWORD` was set.
+4. Open the app and sign in as `entry1`, `entry2`, `exit1`, `exit2`, or
+   `admin`. The demo buttons fill the local seed credentials (`password123`
+   unless `SEED_PASSWORD` / `VITE_DEMO_PASSWORD` was set).
 
 `vite.config.js` proxies `/api` and `/socket.io` to the server. The session
 (token, role, gate) is stored per browser tab in `sessionStorage`, so different
@@ -41,7 +44,7 @@ tabs can be different gates.
 - `src/realtime/` — Socket.io connection and the hub that shares one connection per page.
 - `src/hooks/useLiveLot.js` — lot state from REST + realtime events.
 - `src/hooks/usePanel.js` — loading/error/refresh state for admin panels.
-- `src/components/` — gate consoles, admin dashboard, charts, configuration, and Simulation Console.
+- `src/components/` — gate consoles, bot queue panels, admin dashboard, charts, configuration, database browser, and Simulation Console.
 - `src/utils/` — money/duration formatting and chart-data adapters.
 
 ## Admin configuration
@@ -54,6 +57,18 @@ The Admin dashboard can edit:
 
 Changes are persisted by the backend and apply to subsequent exits without a
 frontend or server restart.
+
+## Demo traffic
+
+The Simulation Console (`/dev/simulate`) starts a bot fleet. Bots queue at entry
+gates and are only parked when an entry operator presses **Generate ticket**.
+When a bot's intended stay ends it moves to an exit gate, where the exit
+operator scans the ticket (or handles a lost ticket), sees the fare quote, and
+presses **Payment collected**. The consoles poll their gate queue every 1.5
+seconds, so all five tabs stay in sync during the demo.
+
+The Admin dashboard also has a raw **Database** panel: pick a collection tab to
+see every column, with rows scrolling inside a fixed-height table.
 
 The demo clock is compressed: five real seconds represent one billed hour. The
 lot map shows occupied spots in green with a live hours timer. Overstayed spots

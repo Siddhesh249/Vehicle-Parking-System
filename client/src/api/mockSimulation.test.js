@@ -11,10 +11,27 @@ describe("mock simulation generator (VPS-DEV-001)", () => {
     jest.useRealTimers();
   });
 
-  const status = async () => {
-    const pending = api.getSimulationStatus();
-    await jest.advanceTimersByTimeAsync(0);
-    return pending;
+  const settle = async (promise) => {
+    // Two sequential mock calls (scan -> processExit) each schedule a zero-delay
+    // timer, so advance a tiny window rather than exactly 0.
+    await jest.advanceTimersByTimeAsync(5);
+    return promise;
+  };
+  const status = () => settle(api.getSimulationStatus());
+  const firstQueue = async (phase) => {
+    const gates = phase === "entry" ? ["Entry-1", "Entry-2"] : ["Exit-1", "Exit-2"];
+    for (const gateId of gates) {
+      const queue = await settle(
+        phase === "entry" ? api.getEntryQueue({ gateId }) : api.getExitQueue({ gateId }),
+      );
+      if (queue.bot) return { queue, gateId };
+    }
+    return { queue: null, gateId: null };
+  };
+  const admitOne = async () => {
+    const { queue, gateId } = await firstQueue("entry");
+    expect(queue?.bot).toBeTruthy();
+    return settle(api.admitEntryBot({ botId: queue.bot.botId, gateId }));
   };
 
   test.each([0, -5, 601, "ten", undefined])("rejects the rate %p", async (rate) => {
@@ -37,28 +54,61 @@ describe("mock simulation generator (VPS-DEV-001)", () => {
       ratePerMinute: 60,
       generatedArrivals: 5,
     });
-    expect(state.successfulAllocations + state.fullLotArrivals).toBe(5);
+    // Bots wait for an entry operator, so none is parked yet.
+    expect(state.successfulAllocations).toBe(0);
+    expect(state.waitingEntry).toBe(5);
   });
 
-  test("counts turned-away arrivals once the lot is full", async () => {
+  test("caps each gate queue and counts overflow instead of unbounded growth", async () => {
     await api.startSimulation({ ratePerMinute: 600 });
     await jest.advanceTimersByTimeAsync(10000);
 
     const state = await status();
     expect(state.generatedArrivals).toBe(100);
-    expect(state.fullLotArrivals).toBeGreaterThan(0);
+    expect(state.queueOverflow).toBeGreaterThan(0);
+    expect(state.waitingEntry).toBeLessThanOrEqual(16);
   });
 
-  test("synthetic arrivals show up in the lot and the audit log", async () => {
+  test("a bot only parks after the entry operator issues a ticket", async () => {
     await api.startSimulation({ ratePerMinute: 30 });
     await jest.advanceTimersByTimeAsync(2000);
     await api.stopSimulation();
 
-    const audit = api.getAuditLog();
-    await jest.advanceTimersByTimeAsync(0);
-    expect(
-      (await audit).entries.filter((e) => e.action === "VEHICLE_ENTRY"),
-    ).toHaveLength(1);
+    expect((await status()).successfulAllocations).toBe(0);
+    const ticket = await admitOne();
+    expect(ticket.ticketId).toBeTruthy();
+
+    const audit = await settle(api.getAuditLog());
+    expect(audit.entries.filter((e) => e.action === "VEHICLE_ENTRY")).toHaveLength(1);
+    expect((await status()).successfulAllocations).toBe(1);
+    expect((await status()).parked).toBe(1);
+  });
+
+  test("a parked bot checks out at an exit gate and payment is collected", async () => {
+    await api.startSimulation({ ratePerMinute: 120 });
+    await jest.advanceTimersByTimeAsync(2000);
+    await api.stopSimulation();
+    await admitOne();
+
+    // Every demo stay is shorter than 12 simulated hours (60 real seconds).
+    await jest.advanceTimersByTimeAsync(61000);
+
+    const { queue, gateId } = await firstQueue("exit");
+    expect(queue?.bot).toBeTruthy();
+
+    const scanned = await settle(api.scanExitBot({ botId: queue.bot.botId, gateId }));
+    expect(scanned.quote.fare).toBeGreaterThanOrEqual(0);
+    if (scanned.lostTicket) {
+      expect(scanned.quote.breakdown.lostTicketPenalty).toBeGreaterThan(0);
+    }
+
+    const receipt = await settle(api.settleExitBot({ botId: queue.bot.botId, gateId }));
+    expect(receipt.fare).toBeGreaterThanOrEqual(0);
+
+    const finalState = await status();
+    expect(finalState.completedExits).toBe(1);
+    expect(finalState.revenueCollected).toBe(receipt.fare);
+    expect(finalState.waitingExit).toBe(0);
   });
 
   test("stop halts the generator and restart resets the counters", async () => {
@@ -124,6 +174,19 @@ describe("mock fare override (VPS-DEV-002)", () => {
       api.processExit({ ticketId: "TKT-DEMO-001", gateId: "Exit-1" }),
     );
     expect(receipt.fare).toBe(25); // 2.5h at 10/h
+  });
+
+  test("clearing the override restores the effective rate table", async () => {
+    const api = createMockApi({ delayMs: 0 });
+    await api.setSimulationFareTiers({
+      vehicleType: "4W",
+      tiers: [{ afterHours: 1, ratePerHour: 999 }],
+    });
+    await expect(api.clearSimulationFareTiers()).resolves.toEqual({ cleared: "all" });
+    const receipt = await settle(
+      api.processExit({ ticketId: "TKT-DEMO-001", gateId: "Exit-1" }),
+    );
+    expect(receipt.fare).toBe(30);
   });
 
   test("does not leak into other mock instances", async () => {

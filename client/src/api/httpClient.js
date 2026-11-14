@@ -84,6 +84,31 @@ export function createHttpApi({
     stopSimulation: () => request("/dev/simulate/stop", { method: "POST", auth: false }),
     setSimulationFareTiers: (config) =>
       request("/dev/simulate/fare-tiers", { method: "PUT", body: config, auth: false }),
+    getSimulationFareConfig: () => request("/dev/simulate/fare-tiers", { auth: false }),
+    clearSimulationFareTiers: ({ vehicleType } = {}) =>
+      request("/dev/simulate/fare-tiers", {
+        method: "DELETE",
+        query: { vehicleType },
+        auth: false,
+      }),
+    setSimulationRate: ({ ratePerMinute }) =>
+      request("/dev/simulate/rate", {
+        method: "PUT",
+        body: { ratePerMinute },
+        auth: false,
+      }),
+    getEntryQueue: () => request("/dev/simulate/queue/entry"),
+    admitEntryBot: ({ botId }) =>
+      request("/dev/simulate/queue/entry/admit", {
+        method: "POST",
+        body: { botId },
+      }),
+    getExitQueue: () => request("/dev/simulate/queue/exit"),
+    scanExitBot: ({ botId }) =>
+      request("/dev/simulate/queue/exit/scan", { method: "POST", body: { botId } }),
+    settleExitBot: ({ botId }) =>
+      request("/dev/simulate/queue/exit/settle", { method: "POST", body: { botId } }),
+    getDatabase: () => request("/admin/database"),
     createEntry: (entry) => request("/entry/vehicles", { method: "POST", body: entry }),
 
     lookupTicket: (ticketId) => request(`/exit/lookup/${encodeURIComponent(ticketId)}`),

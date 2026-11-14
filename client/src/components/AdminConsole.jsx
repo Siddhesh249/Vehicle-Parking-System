@@ -8,12 +8,13 @@ import {
 } from "../utils/format.js";
 import AdminConfig from "./AdminConfig.jsx";
 import { OccupancyChart, RevenueChart } from "./Charts.jsx";
+import DatabaseViewer from "./DatabaseViewer.jsx";
 import "./Console.css";
 
 // Wraps one panel: loading text, a recoverable error, or the loaded content.
-function Panel({ title, state, children }) {
+function Panel({ title, state, children, wide = false }) {
   return (
-    <section className="console-panel">
+    <section className={`console-panel ${wide ? "console-panel--wide" : ""}`.trim()}>
       <h3>{title}</h3>
       {state.status === "loading" && <p role="status">Loading {title.toLowerCase()}…</p>}
       {state.status === "error" && (
@@ -239,7 +240,7 @@ export default function AdminConsole({ api, realtime }) {
         )}
       </Panel>
 
-      <Panel title="Transactions" state={transactions}>
+      <Panel title="Transactions" state={transactions} wide>
         {(data) => (
           <>
             <form
@@ -310,7 +311,7 @@ export default function AdminConsole({ api, realtime }) {
         )}
       </Panel>
 
-      <Panel title="Audit log" state={audit}>
+      <Panel title="Audit log" state={audit} wide>
         {(data) =>
           data.entries.length === 0 ? (
             <p className="field-hint">No audit entries yet.</p>
@@ -340,6 +341,8 @@ export default function AdminConsole({ api, realtime }) {
           )
         }
       </Panel>
+
+      {typeof api.getDatabase === "function" && <DatabaseViewer api={api} />}
 
       {typeof api.getFareConfig === "function" &&
         typeof api.updateFareTiers === "function" &&

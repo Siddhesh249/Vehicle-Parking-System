@@ -13,6 +13,10 @@ export default defineConfig(({ mode }) => {
     // The process environment wins so run.sh can switch modes without writing a .env file.
     define: {
       __API_MODE__: JSON.stringify(apiMode === "real" ? "real" : "mock"),
+      // Local demo quick-fill password; the backend still verifies it normally.
+      __DEMO_PASSWORD__: JSON.stringify(
+        process.env.VITE_DEMO_PASSWORD || env.VITE_DEMO_PASSWORD || "password123",
+      ),
     },
     server: {
       // The Express + Socket.io backend listens on 127.0.0.1:5000 by default.

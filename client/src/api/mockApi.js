@@ -27,6 +27,14 @@ const HOUR_MS = 3600 * 1000;
 const REAL_SECONDS_PER_SIMULATED_HOUR = 5;
 const SIMULATED_HOUR_MS = REAL_SECONDS_PER_SIMULATED_HOUR * 1000;
 const DEFAULT_OVERSTAY_THRESHOLD_HOURS = 6;
+const MOCK_PASSWORD = "password123";
+const MOCK_ACCOUNTS = [
+  { username: "entry1", role: "operator", gateId: "Entry-1" },
+  { username: "entry2", role: "operator", gateId: "Entry-2" },
+  { username: "exit1", role: "operator", gateId: "Exit-1" },
+  { username: "exit2", role: "operator", gateId: "Exit-2" },
+  { username: "admin", role: "admin" },
+];
 
 const simulatedHours = (startMs, endMs = Date.now()) =>
   Math.round(
@@ -112,6 +120,7 @@ export function createMockApi({ delayMs = 150 } = {}) {
   const wait = () => new Promise((resolve) => setTimeout(resolve, delayMs));
   const now = () => Date.now();
   const fareConfig = clone(DEFAULT_FARE_CONFIG);
+  const simulationOverrides = {};
 
   const spots = [
     ...Array.from({ length: 6 }, (_, i) => ({
@@ -153,34 +162,85 @@ export function createMockApi({ delayMs = 150 } = {}) {
     return `TKT-${stamp}-${String(ticketSeq).padStart(3, "0")}`;
   };
 
-  // Synthetic arrival generator state (VPS-DEV-001).
+  // Operator-driven bot fleet (VPS-DEV-001). Bots queue at gates and only park
+  // when the entry operator issues a ticket; parked bots later queue at an exit
+  // gate where the exit operator scans and settles them.
   const sim = {
     timer: null,
     rate: 0,
     startedAt: null,
+    lastTickAt: null,
+    carry: 0,
     generated: 0,
     ok: 0,
     full: 0,
-    carry: 0,
+    overflow: 0,
+    completed: 0,
+    revenue: 0,
+    bots: new Map(),
   };
 
-  const syntheticArrival = () => {
-    sim.generated += 1;
-    const record = park({
-      ticketId: nextTicketId(),
-      plateNumber: `SIM${Math.random().toString(36).slice(2, 14).toUpperCase()}`,
-      vehicleType: Math.random() < 0.65 ? "2W" : "4W",
-      entryTimestamp: new Date(now()).toISOString(),
-      gateId: Math.random() < 0.5 ? "Entry-1" : "Entry-2",
-    });
-    if (!record) {
-      sim.full += 1;
+  const MAX_BOT_QUEUE = 8;
+  const randomEntryGate = () => (Math.random() < 0.5 ? "Entry-1" : "Entry-2");
+  const randomExitGate = () => (Math.random() < 0.5 ? "Exit-1" : "Exit-2");
+  const randomStayHours = () => {
+    const roll = Math.random();
+    if (roll < 0.08) return 8 + Math.random() * 4;
+    if (roll < 0.35) return 4 + Math.random() * 3;
+    return 0.5 + Math.random() * 3.5;
+  };
+  const round2 = (value) => Math.round(value * 100) / 100;
+  const botsIn = (status, gateField, gateId) =>
+    [...sim.bots.values()]
+      .filter((bot) => bot.status === status && bot[gateField] === gateId)
+      .sort((a, b) => (a.arrivedAt ?? a.exitQueuedAt) - (b.arrivedAt ?? b.exitQueuedAt));
+
+  const spawnBot = () => {
+    const entryGateId = randomEntryGate();
+    if (botsIn("waiting_entry", "entryGateId", entryGateId).length >= MAX_BOT_QUEUE) {
+      sim.overflow += 1;
       return;
     }
-    sim.ok += 1;
-    log("VEHICLE_ENTRY");
-    emit(record.spotId, "reserved");
-    emitSnapshot();
+    const id = `BOT-${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
+    sim.bots.set(id, {
+      botId: id,
+      plateNumber: `BOT${Math.random().toString(36).slice(2, 9).toUpperCase()}`,
+      vehicleType: Math.random() < 0.65 ? "2W" : "4W",
+      entryGateId,
+      status: "waiting_entry",
+      arrivedAt: now(),
+      intendedStayHours: round2(randomStayHours()),
+      lostTicket: Math.random() < 0.12,
+    });
+  };
+
+  const promoteBots = () => {
+    const time = now();
+    for (const bot of sim.bots.values()) {
+      if (bot.status === "parked" && time >= bot.exitAtMs) {
+        bot.status = "waiting_exit";
+        bot.exitGateId = randomExitGate();
+        bot.exitQueuedAt = time;
+      }
+    }
+  };
+
+  const settleMockBot = ({ ticketId, plateNumber, fare } = {}) => {
+    const wantedPlate = String(plateNumber ?? "").toUpperCase();
+    for (const bot of sim.bots.values()) {
+      if (bot.status !== "waiting_exit" && bot.status !== "parked") continue;
+      if (
+        (ticketId && bot.ticketId === ticketId) ||
+        (wantedPlate && bot.plateNumber === wantedPlate)
+      ) {
+        bot.status = "completed";
+        bot.fare = fare ?? bot.fare ?? 0;
+        bot.settledAt = now();
+        sim.completed += 1;
+        sim.revenue = round2(sim.revenue + (bot.fare || 0));
+        return;
+      }
+    }
   };
 
   const log = (action, actorRole = "operator") =>
@@ -312,7 +372,22 @@ export function createMockApi({ delayMs = 150 } = {}) {
         };
       });
 
-  return {
+  const api = {
+    async login({ username, password }) {
+      await wait();
+      const account = MOCK_ACCOUNTS.find(
+        (candidate) => candidate.username === String(username ?? "").trim(),
+      );
+      if (!account || password !== MOCK_PASSWORD) {
+        return fail(401, "Invalid username or password", "INVALID_CREDENTIALS");
+      }
+      return {
+        token: `mock-token-${account.username}`,
+        role: account.role,
+        ...(account.gateId ? { gateId: account.gateId } : {}),
+      };
+    },
+
     async getLotStatus() {
       await wait();
       const { totalPct, byZone, occupied, total } = lotStatus();
@@ -395,6 +470,7 @@ export function createMockApi({ delayMs = 150 } = {}) {
       log("VEHICLE_EXIT");
       emit(record.spotId, "free");
       emitSnapshot();
+      settleMockBot({ ticketId: record.ticketId, plateNumber: record.plateNumber, fare });
       return {
         fare,
         durationSeconds,
@@ -637,6 +713,11 @@ export function createMockApi({ delayMs = 150 } = {}) {
       log("SPOT_FORCE_RELEASE", "admin");
       emit(record.spotId, "free");
       emitSnapshot();
+      settleMockBot({
+        ticketId: record.ticketId,
+        plateNumber: record.plateNumber,
+        fare: record.fare,
+      });
       return {
         spotId: record.spotId,
         penaltyApplied: true,
@@ -652,7 +733,7 @@ export function createMockApi({ delayMs = 150 } = {}) {
       };
     },
 
-    // Simulation Console (SAD 4.3.7). No artificial delay, so the generator timing stays exact.
+    // Simulation Console (SAD 4.3.7). No artificial delay, so bot timing stays exact.
     async startSimulation({ ratePerMinute } = {}) {
       if (
         typeof ratePerMinute !== "number" ||
@@ -669,28 +750,62 @@ export function createMockApi({ delayMs = 150 } = {}) {
       Object.assign(sim, {
         rate: ratePerMinute,
         startedAt: now(),
+        lastTickAt: now(),
         generated: 0,
         ok: 0,
         full: 0,
+        overflow: 0,
+        completed: 0,
+        revenue: 0,
         carry: 0,
       });
       sim.timer = setInterval(() => {
-        sim.carry += sim.rate / 60;
+        const time = now();
+        sim.carry += (sim.rate * (time - (sim.lastTickAt ?? time))) / 60000;
+        sim.lastTickAt = time;
         const due = Math.floor(sim.carry);
         sim.carry -= due;
-        for (let i = 0; i < due; i += 1) syntheticArrival();
+        for (let i = 0; i < due; i += 1) {
+          sim.generated += 1;
+          spawnBot();
+        }
+        promoteBots();
       }, 1000);
       return { status: "running" };
     },
 
+    async setSimulationRate({ ratePerMinute } = {}) {
+      if (
+        typeof ratePerMinute !== "number" ||
+        !(ratePerMinute > 0) ||
+        ratePerMinute > 600
+      ) {
+        return fail(
+          400,
+          "ratePerMinute must be greater than 0 and at most 600",
+          "INVALID_SIMULATION_RATE",
+        );
+      }
+      if (!sim.timer) return api.startSimulation({ ratePerMinute });
+      sim.rate = ratePerMinute;
+      sim.lastTickAt = now();
+      return { status: "running", ratePerMinute };
+    },
+
     async stopSimulation() {
       if (sim.timer) clearInterval(sim.timer);
+      promoteBots();
       Object.assign(sim, { timer: null, rate: 0, startedAt: null, carry: 0 });
       return { status: "stopped" };
     },
 
     async getSimulationStatus() {
       await wait();
+      promoteBots();
+      const parked = [...sim.bots.values()].filter((bot) => bot.status === "parked");
+      const waitingExit = [...sim.bots.values()].filter(
+        (bot) => bot.status === "waiting_exit",
+      );
       return {
         running: sim.timer !== null,
         ratePerMinute: sim.rate,
@@ -698,8 +813,172 @@ export function createMockApi({ delayMs = 150 } = {}) {
         generatedArrivals: sim.generated,
         successfulAllocations: sim.ok,
         fullLotArrivals: sim.full,
+        queueOverflow: sim.overflow,
+        completedExits: sim.completed,
+        revenueCollected: sim.revenue,
+        waitingEntry:
+          botsIn("waiting_entry", "entryGateId", "Entry-1").length +
+          botsIn("waiting_entry", "entryGateId", "Entry-2").length,
+        parked: parked.length,
+        waitingExit: waitingExit.length,
+        lostTicketExits: waitingExit.filter((bot) => bot.lostTicket).length,
+        occupied: parked.length + waitingExit.length,
         lastError: null,
+        gates: {
+          "Entry-1": {
+            waiting: botsIn("waiting_entry", "entryGateId", "Entry-1").length,
+          },
+          "Entry-2": {
+            waiting: botsIn("waiting_entry", "entryGateId", "Entry-2").length,
+          },
+          "Exit-1": { waiting: botsIn("waiting_exit", "exitGateId", "Exit-1").length },
+          "Exit-2": { waiting: botsIn("waiting_exit", "exitGateId", "Exit-2").length },
+        },
       };
+    },
+
+    async getEntryQueue({ gateId = "Entry-1" } = {}) {
+      await wait();
+      promoteBots();
+      const queue = botsIn("waiting_entry", "entryGateId", gateId);
+      const next = queue[0];
+      return {
+        gateId,
+        queueLength: queue.length,
+        bot: next
+          ? {
+              botId: next.botId,
+              plateNumber: next.plateNumber,
+              vehicleType: next.vehicleType,
+              arrivedAt: new Date(next.arrivedAt).toISOString(),
+              waitSeconds: Math.max(0, Math.round((now() - next.arrivedAt) / 1000)),
+            }
+          : null,
+      };
+    },
+
+    async admitEntryBot({ botId, gateId = "Entry-1" } = {}) {
+      await wait();
+      promoteBots();
+      const bot = sim.bots.get(botId);
+      if (!bot || bot.status !== "waiting_entry" || bot.entryGateId !== gateId) {
+        return fail(404, "No simulated vehicle is waiting at this gate", "BOT_NOT_FOUND");
+      }
+      const ticketId = nextTicketId();
+      const record = park({
+        ticketId,
+        plateNumber: bot.plateNumber,
+        vehicleType: bot.vehicleType,
+        entryTimestamp: new Date(now()).toISOString(),
+        gateId,
+      });
+      if (!record) {
+        sim.bots.delete(botId);
+        sim.full += 1;
+        return fail(409, `No ${bot.vehicleType} spots available`, "LOT_FULL");
+      }
+      bot.status = "parked";
+      bot.ticketId = ticketId;
+      bot.transactionId = ticketId;
+      bot.spotId = record.spotId;
+      bot.entryTimestamp = record.entryTimestamp;
+      bot.exitAtMs = now() + bot.intendedStayHours * SIMULATED_HOUR_MS;
+      sim.ok += 1;
+      log("VEHICLE_ENTRY");
+      emit(record.spotId, "reserved");
+      emitSnapshot();
+      return {
+        ticketId,
+        spotId: record.spotId,
+        spotNumber: record.spotId,
+        zone: record.zone,
+        qrPayload: ticketId,
+        botId,
+        intendedStayHours: bot.intendedStayHours,
+        plannedExitAt: new Date(bot.exitAtMs).toISOString(),
+      };
+    },
+
+    async getExitQueue({ gateId = "Exit-1" } = {}) {
+      await wait();
+      promoteBots();
+      const queue = botsIn("waiting_exit", "exitGateId", gateId);
+      const next = queue[0];
+      return {
+        gateId,
+        queueLength: queue.length,
+        bot: next
+          ? {
+              botId: next.botId,
+              hasTicket: !next.lostTicket,
+              queuedAt: new Date(next.exitQueuedAt).toISOString(),
+              waitSeconds: Math.max(0, Math.round((now() - next.exitQueuedAt) / 1000)),
+            }
+          : null,
+      };
+    },
+
+    async scanExitBot({ botId, gateId = "Exit-1" } = {}) {
+      await wait();
+      promoteBots();
+      const bot = sim.bots.get(botId);
+      if (!bot || bot.status !== "waiting_exit" || bot.exitGateId !== gateId) {
+        return fail(404, "No simulated vehicle is waiting at this gate", "BOT_NOT_FOUND");
+      }
+      const record = active().find((entry) => entry.ticketId === bot.ticketId);
+      if (!record) return fail(409, "Vehicle has already exited", "ALREADY_EXITED");
+      const durationSeconds =
+        simulatedHours(new Date(record.entryTimestamp).getTime()) * 3600;
+      const baseFare = calculateBaseFare(durationSeconds, record.vehicleType, fareConfig);
+      const lostTicket = bot.lostTicket;
+      const penalty = lostTicket ? fareConfig[record.vehicleType].lostTicketPenalty : 0;
+      return {
+        botId,
+        hasTicket: !lostTicket,
+        lostTicket,
+        ticketId: lostTicket ? null : bot.ticketId,
+        plateNumber: bot.plateNumber,
+        vehicleType: bot.vehicleType,
+        entryGateId: record.entryGateId,
+        entryTimestamp: record.entryTimestamp,
+        queuedAt: new Date(bot.exitQueuedAt).toISOString(),
+        quote: {
+          ticketId: bot.ticketId,
+          plateNumber: bot.plateNumber,
+          vehicleType: bot.vehicleType,
+          entryTimestamp: record.entryTimestamp,
+          durationSeconds,
+          durationHours: durationSeconds / 3600,
+          lostTicket,
+          fare: round2(baseFare + penalty),
+          breakdown: {
+            baseFare,
+            ...(lostTicket ? { lostTicketPenalty: penalty } : {}),
+          },
+        },
+      };
+    },
+
+    async settleExitBot({ botId, gateId = "Exit-1" } = {}) {
+      const scan = await api.scanExitBot({ botId, gateId });
+      const receipt = await api.processExit({
+        ticketId: scan.hasTicket ? scan.ticketId : undefined,
+        plateNumber: scan.plateNumber,
+        gateId,
+      });
+      return receipt;
+    },
+
+    async getSimulationFareConfig() {
+      return api.getFareConfig();
+    },
+
+    async clearSimulationFareTiers() {
+      for (const [vehicleType, previous] of Object.entries(simulationOverrides)) {
+        fareConfig[vehicleType] = clone(previous);
+        delete simulationOverrides[vehicleType];
+      }
+      return { cleared: "all" };
     },
 
     async setSimulationFareTiers(config = {}) {
@@ -718,6 +997,9 @@ export function createMockApi({ delayMs = 150 } = {}) {
       } catch (error) {
         return fail(400, error.message, "INVALID_FARE_OVERRIDE");
       }
+      if (!simulationOverrides[vehicleType]) {
+        simulationOverrides[vehicleType] = clone(fareConfig[vehicleType]);
+      }
       fareConfig[vehicleType] = {
         ...fareConfig[vehicleType],
         firstHourFree: firstHourFree !== false,
@@ -730,6 +1012,83 @@ export function createMockApi({ delayMs = 150 } = {}) {
           : { overstayPenalty: Number(overstayPenalty) }),
       };
       return { updated: true, vehicleType };
+    },
+
+    async getDatabase() {
+      await wait();
+      const vehicles = [];
+      const seen = new Set();
+      for (const record of records) {
+        if (seen.has(record.plateNumber)) continue;
+        seen.add(record.plateNumber);
+        vehicles.push({
+          _id: `veh-${record.plateNumber}`,
+          plateNumber: record.plateNumber,
+          vehicleType: record.vehicleType,
+        });
+      }
+      const collections = {
+        spots: spots.map((spot) => ({
+          _id: spot.id,
+          spotNumber: spot.id,
+          zone: spot.zone,
+          status: spot.status,
+        })),
+        vehicles,
+        transactions: records.map((record) => ({
+          _id: record.ticketId,
+          ticketId: record.ticketId,
+          plateNumber: record.plateNumber,
+          vehicleType: record.vehicleType,
+          spotId: record.spotId,
+          entryGateId: record.entryGateId,
+          entryTimestamp: record.entryTimestamp,
+          exitGateId: record.exitGateId,
+          exitTimestamp: record.exitTimestamp,
+          fare: record.fare,
+          status: record.status,
+        })),
+        auditlogs: audit.map((entry, index) => ({
+          _id: `audit-${index}`,
+          action: entry.action,
+          actorRole: entry.actorRole,
+          createdAt: entry.createdAt,
+        })),
+        users: MOCK_ACCOUNTS.map((account) => ({
+          _id: `user-${account.username}`,
+          username: account.username,
+          role: account.role,
+          gateId: account.gateId,
+          isLocked: false,
+        })),
+        faretierconfigs: Object.entries(fareConfig).map(([vehicleType, config]) => ({
+          _id: `fare-${vehicleType}`,
+          vehicleType,
+          firstHourFree: config.firstHourFree,
+          tiers: config.tiers,
+          lostTicketPenalty: config.lostTicketPenalty,
+          overstayPenalty: config.overstayPenalty,
+        })),
+        systemconfigs: [
+          {
+            _id: "overstay-threshold",
+            key: "overstayThresholdHours",
+            value: overstayThresholdHours,
+          },
+        ],
+      };
+      const counts = Object.fromEntries(
+        Object.entries(collections).map(([name, rows]) => [name, rows.length]),
+      );
+      return {
+        generatedAt: new Date(now()).toISOString(),
+        rowLimit: 250,
+        counts,
+        truncated: Object.fromEntries(
+          Object.keys(collections).map((name) => [name, false]),
+        ),
+        collections,
+      };
     },
 
     // Same interface as the Socket.io connection: connect(handlers) returns a disconnect function.
@@ -748,6 +1107,7 @@ export function createMockApi({ delayMs = 150 } = {}) {
       },
     },
   };
+  return api;
 }
 
 export const mockApi = createMockApi();
