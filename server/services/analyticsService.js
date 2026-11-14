@@ -2,6 +2,7 @@
 
 const Spot = require("../models/Spot");
 const Transaction = require("../models/Transaction");
+const { roundMoney } = require("../utils/money");
 
 const ZONES = ["2W", "4W"];
 const HOUR_MS = 60 * 60 * 1000;
@@ -84,11 +85,15 @@ async function getRevenue() {
 
   const byZone = {};
   for (const zone of ZONES) byZone[zone] = 0;
-  for (const { _id, total } of result.byZone) byZone[_id] = total;
+  for (const { _id, total } of result.byZone) byZone[_id] = roundMoney(total);
 
   return {
-    total: result.total[0]?.total ?? 0,
-    byDay: result.byDay.map(({ _id, total, count }) => ({ date: _id, total, count })),
+    total: roundMoney(result.total[0]?.total ?? 0),
+    byDay: result.byDay.map(({ _id, total, count }) => ({
+      date: _id,
+      total: roundMoney(total),
+      count,
+    })),
     byZone,
   };
 }

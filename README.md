@@ -30,7 +30,7 @@ The app opens at **http://localhost:5173**. The API listens on **http://127.0.0.
 | exit2   | Gate operator | Exit-2  | `password123` |
 | admin   | Admin         | —       | `password123` |
 
-Set `SEED_PASSWORD` before seeding to use a different local demo password. The seed is idempotent and safe to re-run.
+Set `SEED_PASSWORD` before seeding to use a different local demo password. The seed is idempotent and safe to re-run. `./run.sh` starts from a clean demo state (`SEED_RESET_DEMO=true`), so parked cars, revenue and overstay flags are not carried over from a previous session; set `SEED_RESET_DEMO=false` to keep data between launches.
 
 The app opens on the sign-in page. Demo-account buttons pre-fill the username and password for the selected role; the credentials still go through the normal bcrypt + JWT login. Each browser tab keeps its own session, so the five-tab demo works without signing in again.
 
@@ -64,15 +64,16 @@ This constraint is why concurrency-safe, atomic database writes matter so much h
 
 1. Operator looks the vehicle up by Ticket ID (fast path) or by plate number (fallback — this is the "lost ticket" case, since without the ID a manual DB search is the only recourse).
 2. Losing the ticket triggers a **penalty**, added to the computed fare — the ticket ID's value _is_ that it lets you skip this.
-3. Fare is computed on the **exact simulated duration** (no rounding): **first hour free**, then hourly charges that **increase every 2–3 hours**. Two-wheelers and four-wheelers have **independently configurable** rate tables.
-4. **Demo clock:** by default, **5 real seconds = 1 simulated parking hour** (`SIMULATED_HOUR_SECONDS`). All fare tiers, overstay checks and UI timers use simulated hours, so a 26-second stay is displayed and billed as 5.2 hours.
-5. On confirmed exit, the spot is immediately marked free (live, across all tabs) and the finalized transaction (plate, times, duration, fare, gate, operator) is permanently recorded.
+3. A car's parking timer stops the moment it joins an exit queue: that spot is freed immediately for the next vehicle, and billing is frozen at that time even if the operator takes a while to collect payment.
+4. Fare is computed on the **exact simulated duration** (no rounding): **first hour free**, then hourly charges that **increase every 2–3 hours**. Two-wheelers and four-wheelers have **independently configurable** rate tables.
+5. **Demo clock:** by default, **5 real seconds = 1 simulated parking hour** (`SIMULATED_HOUR_SECONDS`). All fare tiers, overstay checks and UI timers use simulated hours, so a 26-second stay is displayed and billed as 5.2 hours.
+6. On confirmed exit, the spot is immediately marked free (live, across all tabs) and the finalized transaction (plate, times, duration, fare, gate, operator) is permanently recorded.
 
 The Admin dashboard can edit the fare tiers, first-hour policy, lost-ticket/overstay penalties, per-zone spot counts, and the overstay threshold at runtime. Changes apply to subsequent exits without a redeploy.
 
 ## 8. Overstay handling
 
-- A vehicle is flagged "overstayed" once its simulated parked duration crosses the Admin-configured threshold. The default is 6 hours, and the server scans periodically and broadcasts new alerts to connected admin tabs.
+- A vehicle is flagged "overstayed" once its simulated parked duration crosses the Admin-configured threshold. The default is 8 simulated hours (40 real seconds on the demo clock), and the server scans periodically and broadcasts new alerts to connected admin tabs.
 - The threshold cannot be lower than the highest fare-tier threshold. For example, if the last tier begins at 6 hours, the overstay threshold must be at least 6 hours. Both configuration paths enforce this server-side.
 - The exit operator's lot map shows free spots grey, occupied spots green with a live hours timer, and overstayed spots blinking red. Clicking an overstayed spot sends an immediate notification to the Admin and displays “Notification sent to admin.”
 - The operator can also notify the Admin from an exit lookup; that notification is broadcast immediately.
@@ -83,7 +84,8 @@ The Admin dashboard can edit the fare tiers, first-hour policy, lost-ticket/over
 
 - Spawns a fleet of demo "bot" cars at 1–600 per minute across both entry gates. Each car has an internal intended parking duration and a small chance of a lost ticket.
 - Cars queue at the entry gate. The entry operator presses **Generate ticket**, which creates a real spot allocation and transaction exactly like a manual entry.
-- When its intended stay ends, each car drives to an exit gate and appears in that operator's queue. The exit operator presses **Scan ticket** (or handles a lost-ticket plate lookup), sees the fare, then presses **Payment collected** to settle it. Revenue updates in the admin dashboard as cars leave.
+- When its intended stay ends, each car drives to an exit gate, frees its spot immediately and appears in that operator's queue. Billing stops at that moment, so a delayed payment does not charge extra hours.
+- The exit operator scans the QR (or handles a lost-ticket plate lookup), sees the quote, then presses **Payment collected**. Revenue updates in the admin dashboard as cars leave.
 - Can change the traffic rate while running and apply/clear runtime fare-tier overrides, so a demo can show a changed fare without editing the database or restarting the server.
 - Is excluded from the Gate Operator and Admin role navigation. The production client build does not render the page, and its server routes return 404 in production (`NODE_ENV=production`) or when `DISABLE_SIMULATION=true`.
 - Its k6 load-test companion is `loadtest/entry-concurrency.js`.
@@ -91,6 +93,7 @@ The Admin dashboard can edit the fare tiers, first-hour policy, lost-ticket/over
 ## 10. Frontend look and feel
 
 - Minimalist. Red-and-white theme with red accents. Explicitly **not** animation-heavy — "just a pretty visual."
+- Soft red radial shapes, a light diagonal grid and a red header accent sit behind every page, so wide layouts feel finished.
 - The parking lot is shown as a live grid of spots, split visually into 2W and 4W zones: grey = free, green = occupied (with a live hours timer), blinking red = overstayed. Every spot also has a text status label, so status is never conveyed by colour alone.
 - Exit operators can click a blinking overstayed spot to notify the Admin; the first click disables repeat notifications for that vehicle and confirms “Notification sent to admin.”
 - All open sessions (both entry consoles, both exit consoles, admin dashboard) show an **identical, live-updating** view — the Socket.io broadcast requirement and the main "wow" moment for a demo.
@@ -99,19 +102,20 @@ The Admin dashboard can edit the fare tiers, first-hour policy, lost-ticket/over
 
 ## 11. Configuration
 
-| Variable                    | Where         | Default                 | Purpose                                             |
-| --------------------------- | ------------- | ----------------------- | --------------------------------------------------- |
-| `MONGO_URI`                 | `server/.env` | local `vehicle_parking` | MongoDB connection string                           |
-| `PORT`                      | `server/.env` | `5000`                  | API port                                            |
-| `CLIENT_URL`                | `server/.env` | `http://localhost:5173` | Allowed browser origin                              |
-| `JWT_SECRET`                | `server/.env` | dev fallback            | JWT signing secret; required in production          |
-| `SIMULATED_HOUR_SECONDS`    | environment   | `5`                     | Real seconds that represent one billed hour         |
-| `OVERSTAY_SCAN_INTERVAL_MS` | environment   | `5000`                  | Background overstay scan interval                   |
-| `DISABLE_SIMULATION`        | environment   | unset                   | Set `true` to hide developer simulation routes      |
-| `SEED_DEMO_DATA`            | environment   | `true`                  | Set `false` to omit sample vehicles/history         |
-| `VITE_API_MODE`             | client env    | `mock`                  | `real` talks to the backend; `mock` is offline      |
-| `VITE_DEMO_PASSWORD`        | client env    | `password123`           | Password used by the one-click demo account buttons |
-| `CLIENT_PORT` / `PORT`      | `./run.sh`    | `5173` / `5000`         | Ports used by the convenience launcher              |
+| Variable                    | Where         | Default                  | Purpose                                             |
+| --------------------------- | ------------- | ------------------------ | --------------------------------------------------- |
+| `MONGO_URI`                 | `server/.env` | local `vehicle_parking`  | MongoDB connection string                           |
+| `PORT`                      | `server/.env` | `5000`                   | API port                                            |
+| `CLIENT_URL`                | `server/.env` | `http://localhost:5173`  | Allowed browser origin                              |
+| `JWT_SECRET`                | `server/.env` | dev fallback             | JWT signing secret; required in production          |
+| `SIMULATED_HOUR_SECONDS`    | environment   | `5`                      | Real seconds that represent one billed hour         |
+| `OVERSTAY_SCAN_INTERVAL_MS` | environment   | `5000`                   | Background overstay scan interval                   |
+| `DISABLE_SIMULATION`        | environment   | unset                    | Set `true` to hide developer simulation routes      |
+| `SEED_DEMO_DATA`            | environment   | `true`                   | Set `false` to omit sample vehicles/history         |
+| `SEED_RESET_DEMO`           | environment   | `false` (run.sh: `true`) | Wipe operational data and build a clean demo lot    |
+| `VITE_API_MODE`             | client env    | `mock`                   | `real` talks to the backend; `mock` is offline      |
+| `VITE_DEMO_PASSWORD`        | client env    | `password123`            | Password used by the one-click demo account buttons |
+| `CLIENT_PORT` / `PORT`      | `./run.sh`    | `5173` / `5000`          | Ports used by the convenience launcher              |
 
 Copy `server/.env.example` to `server/.env` for a custom local setup. Never commit `.env` files or real credentials.
 

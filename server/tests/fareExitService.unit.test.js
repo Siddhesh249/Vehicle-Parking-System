@@ -113,7 +113,11 @@ describe("Fare/Exit Service", () => {
       expect.objectContaining({ returnDocument: "after" }),
     );
     expect(Spot.findOneAndUpdate).toHaveBeenCalledWith(
-      { _id: "spot-1", status: "reserved" },
+      {
+        _id: "spot-1",
+        status: "reserved",
+        $or: [{ currentTransactionId: "tx-1" }, { currentTransactionId: null }],
+      },
       { $set: { status: "free", currentTransactionId: null } },
       { returnDocument: "after" },
     );

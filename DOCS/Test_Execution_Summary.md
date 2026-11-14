@@ -58,8 +58,8 @@ Run locally on 2026-11-14 through `bash test.sh` (formatting, server tests, clie
 
 ### Server — Jest + Supertest
 
-- Test suites: 24 passed, 0 failed (24 total).
-- Tests: 268 passed, 0 failed (268 total).
+- Test suites: 25 passed, 0 failed (25 total).
+- Tests: 272 passed, 0 failed (272 total).
 
 ### Client — Jest + React Testing Library
 
@@ -73,8 +73,11 @@ Run locally on 2026-11-14 through `bash test.sh` (formatting, server tests, clie
   and payment. Covered by `simulationService.unit.test.js`,
   `botQueue.integration.test.js` and the client bot-panel tests.
 - The app now opens on the sign-in page with one-click demo credential fill.
-- Admin tables and the raw database browser use fixed-height scroll areas, and
-  new admin database access is covered by `botQueue.integration.test.js`.
+- Parking time and billing stop when a car joins the exit queue, the freed spot
+  can be reused immediately, and the admin database access is covered by
+  `parkingEnd.integration.test.js` and `botQueue.integration.test.js`.
+- `run.sh` resets operational demo data before seeding, so revenue and overstay
+  flags start from a clean average state.
 
 ### k6 — S4-T1 concurrent allocation
 

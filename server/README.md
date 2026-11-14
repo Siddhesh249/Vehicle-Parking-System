@@ -41,10 +41,12 @@ and `overstay:alert` (server → the authenticated/admin rooms).
 `services/simulationService.js` keeps an in-memory fleet of demo customers. A
 tick spawns arrivals at the configured rate (up to 8 waiting per gate), parks
 each car only when the signed-in entry operator calls the admit route, and moves
-it to an exit queue after its intended simulated stay. The exit operator scans
-the bot to get a fare quote and then settles it through the ordinary
-`processExit` path, so transactions, audit entries and revenue are real. The
-`markBotSettled` hook also retires a bot when an admin force-releases it.
+it to an exit queue after its intended simulated stay. At that moment the spot
+is freed (with a transaction ownership check so a newly parked car is never
+released) and billing is frozen. The exit operator scans the bot to get a fare
+quote and then settles it through the ordinary `processExit` path, so
+transactions, audit entries and revenue are real. The `markBotSettled` hook
+also retires a bot when an admin force-releases it.
 
 `services/databaseService.js` powers `GET /api/admin/database`: it returns up to
 250 rows from each collection for the admin's read-only database browser. The
@@ -59,6 +61,9 @@ users projection strips `passwordHash`.
 - The demo clock uses `SIMULATED_HOUR_SECONDS` (default `5`), so five real
   seconds are billed as one hour. Fares, overstay checks and UI timers all use
   this same simulated clock.
+- A transaction's optional `parkingEndTimestamp` freezes billing and overstay
+  checks when the car leaves its spot for the exit queue, even if payment is
+  collected later.
 - The `2W` and `4W` schedules are independent.
 - `options.lostTicket` and `options.overstay` add the corresponding configured penalties.
 - Invalid dates, exit times before entry, unknown vehicle types, negative rates, and duplicate tier thresholds are rejected.
@@ -71,7 +76,8 @@ tables are configured.
 ## Overstay detection
 
 The Admin configures the overstay threshold in hours (`GET/PUT
-/api/admin/config/overstay`). It must be at least the highest fare-tier
+/api/admin/config/overstay`). The default is 8 simulated hours (40 real seconds
+on the demo clock). It must be at least the highest fare-tier
 threshold, and the same rule is enforced when fare tiers are edited. Active
 transactions are automatically flagged once that simulated duration has
 elapsed. `index.js` scans every `OVERSTAY_SCAN_INTERVAL_MS` (default `5000`)
@@ -84,11 +90,15 @@ overstay penalty.
 
 Run `npm run seed` once against the configured database. It creates the four fixed gate
 accounts (`entry1`, `entry2`, `exit1`, `exit2`), the `admin` account, the initial
-6 two-wheeler / 10 four-wheeler spots, and sample activity: active vehicles with
-live timers (including overstay examples), completed transactions for the
-revenue chart, and audit history. The local password is `password123` unless
+6 two-wheeler / 10 four-wheeler spots, and sample activity: six active vehicles
+with live timers (all below the 8-hour overstay threshold at launch), completed
+transactions for the revenue chart, and audit history. The local password is
+`password123` unless
 `SEED_PASSWORD` is set; the script is idempotent. Set `SEED_DEMO_DATA=false` to
-seed only accounts/spots, which the isolated k6 database does.
+seed only accounts/spots, which the isolated k6 database does. Set
+`SEED_RESET_DEMO=true` to clear operational collections, fare/system config and
+recreate the clean demo lot; `run.sh` does this by default so revenue and
+overstay flags do not carry over between demo sessions.
 
 ## Running and tests
 

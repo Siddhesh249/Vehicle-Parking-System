@@ -45,7 +45,9 @@ const {
   getExitQueue,
   admitEntryBot,
   inspectExitBot,
+  findBotExitTime,
   markBotSettled,
+  setPromotionListener,
 } = require("./services/simulationService");
 const { getDatabaseSnapshot } = require("./services/databaseService");
 const Spot = require("./models/Spot");
@@ -191,6 +193,13 @@ function broadcastLotSnapshot() {
     .then((snapshot) => io.to("authenticated").emit("lot:snapshot", snapshot))
     .catch(() => {});
 }
+
+// A demo car that reaches its exit queue frees its spot immediately; tell every
+// connected lot map about that without waiting for the next poll.
+setPromotionListener((promoted) => {
+  for (const bot of promoted) broadcastSpotUpdate(bot.spotId, "free");
+  broadcastLotSnapshot();
+});
 
 function authenticateToken(req, res, next) {
   const authorization = req.headers.authorization;
@@ -396,6 +405,7 @@ app.post(
       const quote = await quoteExit({
         ticketId: bot.hasTicket ? bot.ticketId : undefined,
         plateNumber: bot.plateNumber,
+        exitTimestamp: new Date(bot.parkingEndTimestamp),
       });
       return res.status(200).json({ ...bot, quote });
     } catch (error) {
@@ -417,6 +427,7 @@ app.post(
         plateNumber: bot.plateNumber,
         gateId: req.user.gateId,
         operatorId: req.user.userId,
+        exitTimestamp: new Date(bot.parkingEndTimestamp),
       });
       markBotSettled({
         ticketId: receipt.ticketId,
@@ -512,11 +523,16 @@ app.post(
   requireGate("Exit-"),
   async (req, res) => {
     try {
+      const botExitTime = findBotExitTime({
+        ticketId: req.body?.ticketId,
+        plateNumber: req.body?.plateNumber,
+      });
       const receipt = await processExit({
         ticketId: req.body?.ticketId,
         plateNumber: req.body?.plateNumber,
         gateId: req.user.gateId,
         operatorId: req.user.userId,
+        exitTimestamp: botExitTime ?? new Date(),
       });
       // If this exit belonged to a simulated car, retire it from the bot queue.
       markBotSettled({
@@ -729,7 +745,15 @@ app.post(
   requireAdmin,
   async (req, res) => {
     try {
-      const result = await forceRelease({ vehicleId: req.params.id, admin: req.user });
+      const botExitTime = findBotExitTime({
+        ticketId: req.params.id,
+        transactionId: req.params.id,
+      });
+      const result = await forceRelease({
+        vehicleId: req.params.id,
+        admin: req.user,
+        now: botExitTime ?? new Date(),
+      });
       markBotSettled({
         ticketId: result.ticketId,
         plateNumber: result.plateNumber,

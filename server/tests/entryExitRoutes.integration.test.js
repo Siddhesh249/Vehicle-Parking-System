@@ -116,6 +116,7 @@ describe("Sprint 3 entry/exit API routes", () => {
       plateNumber: undefined,
       gateId: "Exit-2",
       operatorId: "operator-2",
+      exitTimestamp: expect.any(Date),
     });
     expect(response.body.receiptId).toBe("receipt-1");
   });

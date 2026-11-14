@@ -8,11 +8,14 @@ const Spot = require("./models/Spot");
 const Vehicle = require("./models/Vehicle");
 const Transaction = require("./models/Transaction");
 const AuditLog = require("./models/AuditLog");
+const FareTierConfig = require("./models/FareTierConfig");
+const SystemConfig = require("./models/SystemConfig");
 const { hashPassword } = require("./utils/passwordUtils");
 const { getMongoUri } = require("./utils/database");
 const { calculateFare } = require("./services/fareService");
 const { getOverstayThresholdHours } = require("./services/overstayConfigService");
 const { realMillisecondsForSimulatedHours } = require("./utils/simulatedTime");
+const { roundMoney } = require("./utils/money");
 
 const DEFAULT_PASSWORD = process.env.SEED_PASSWORD || "password123";
 
@@ -35,7 +38,7 @@ const DEMO_ACTIVE_ENTRIES = [
     vehicleType: "2W",
     entryGateId: "Entry-1",
     entryOperator: "entry1",
-    hoursAgo: 2.2,
+    hoursAgo: 0.6,
   },
   {
     ticketId: "TKT-DEMO-1002",
@@ -43,7 +46,7 @@ const DEMO_ACTIVE_ENTRIES = [
     vehicleType: "4W",
     entryGateId: "Entry-2",
     entryOperator: "entry2",
-    hoursAgo: 3.7,
+    hoursAgo: 1.2,
   },
   {
     ticketId: "TKT-DEMO-1003",
@@ -51,7 +54,7 @@ const DEMO_ACTIVE_ENTRIES = [
     vehicleType: "4W",
     entryGateId: "Entry-1",
     entryOperator: "entry1",
-    hoursAgo: 6.5,
+    hoursAgo: 2.1,
   },
   {
     ticketId: "TKT-DEMO-1004",
@@ -59,7 +62,23 @@ const DEMO_ACTIVE_ENTRIES = [
     vehicleType: "2W",
     entryGateId: "Entry-2",
     entryOperator: "entry2",
-    hoursAgo: 7.8,
+    hoursAgo: 2.8,
+  },
+  {
+    ticketId: "TKT-DEMO-1005",
+    plateNumber: "KA11JK7788",
+    vehicleType: "4W",
+    entryGateId: "Entry-2",
+    entryOperator: "entry2",
+    hoursAgo: 3.4,
+  },
+  {
+    ticketId: "TKT-DEMO-1006",
+    plateNumber: "KA12LM9900",
+    vehicleType: "2W",
+    entryGateId: "Entry-1",
+    entryOperator: "entry1",
+    hoursAgo: 4.2,
   },
 ];
 
@@ -244,9 +263,11 @@ async function seedDemoData(users, now, overstayThresholdHours) {
     const entryTimestamp = new Date(
       exitTimestamp.getTime() - realMillisecondsForSimulatedHours(demo.durationHours),
     );
-    const fare = calculateFare(entryTimestamp, exitTimestamp, demo.vehicleType, {
-      lostTicket: demo.lostTicket,
-    });
+    const fare = roundMoney(
+      calculateFare(entryTimestamp, exitTimestamp, demo.vehicleType, {
+        lostTicket: demo.lostTicket,
+      }),
+    );
 
     await upsertDemoVehicle(demo.plateNumber, demo.vehicleType);
     await Transaction.create({
@@ -315,7 +336,29 @@ async function seedDemoData(users, now, overstayThresholdHours) {
   };
 }
 
-async function seedDatabase({ password = DEFAULT_PASSWORD, includeDemo = true } = {}) {
+/**
+ * Demo launches should not inherit yesterday's parked cars or revenue. This
+ * wipes the operational collections and lets the seed recreate a clean, average
+ * lot. Accounts are kept so credentials stay stable.
+ */
+async function resetDemoState() {
+  await Promise.all([
+    Transaction.deleteMany({}),
+    // AuditLog blocks deleteMany at the model layer; a demo reset is the one
+    // place that intentionally bypasses it.
+    AuditLog.collection.deleteMany({}),
+    Vehicle.deleteMany({}),
+    Spot.deleteMany({}),
+    FareTierConfig.deleteMany({}),
+    SystemConfig.deleteMany({}),
+  ]);
+}
+
+async function seedDatabase({
+  password = DEFAULT_PASSWORD,
+  includeDemo = true,
+  resetDemo = process.env.SEED_RESET_DEMO === "true",
+} = {}) {
   const passwordHash = await hashPassword(password);
   const users = new Map();
 
@@ -343,6 +386,8 @@ async function seedDatabase({ password = DEFAULT_PASSWORD, includeDemo = true } 
     users.set(username, user);
   }
 
+  if (resetDemo) await resetDemoState();
+
   const spotCounts = {};
   for (const [zone, count] of Object.entries(DEFAULT_SPOT_COUNTS)) {
     spotCounts[zone] = await ensureSpots(zone, count);
@@ -355,7 +400,7 @@ async function seedDatabase({ password = DEFAULT_PASSWORD, includeDemo = true } 
     demo = await seedDemoData(users, new Date(), await getOverstayThresholdHours());
   }
 
-  return { accounts: SEED_ACCOUNTS.length, spotCounts, demo };
+  return { accounts: SEED_ACCOUNTS.length, spotCounts, demo, resetDemo };
 }
 
 async function main() {
@@ -363,6 +408,11 @@ async function main() {
   const result = await seedDatabase({
     includeDemo: process.env.SEED_DEMO_DATA !== "false",
   });
+  if (process.env.SEED_RESET_DEMO === "true") {
+    console.log(
+      "Operational demo data reset (transactions, audit log, vehicles, spots).",
+    );
+  }
   console.log(
     `Seeded ${result.accounts} accounts and spots: ${result.spotCounts["2W"]} 2W, ${result.spotCounts["4W"]} 4W`,
   );

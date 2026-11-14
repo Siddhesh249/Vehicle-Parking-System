@@ -1,7 +1,10 @@
 /** Sprint 2 — T1: allocation service contract (VPS-F-010..014). */
 "use strict";
 
-jest.mock("../models/Spot", () => ({ findOneAndUpdate: jest.fn() }));
+jest.mock("../models/Spot", () => ({
+  findOneAndUpdate: jest.fn(),
+  updateOne: jest.fn(),
+}));
 jest.mock("../models/Vehicle", () => ({ findOneAndUpdate: jest.fn() }));
 jest.mock("../models/Transaction", () => ({ create: jest.fn() }));
 jest.mock("../services/auditService", () => ({ writeAuditEntry: jest.fn() }));
@@ -24,6 +27,7 @@ describe("allocateSpot", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     writeAuditEntry.mockResolvedValue({});
+    Spot.updateOne.mockResolvedValue({});
   });
 
   test.each([["2W"], ["4W"]])(

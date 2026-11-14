@@ -26,7 +26,7 @@ const DEFAULT_FARE_CONFIG = {
 const HOUR_MS = 3600 * 1000;
 const REAL_SECONDS_PER_SIMULATED_HOUR = 5;
 const SIMULATED_HOUR_MS = REAL_SECONDS_PER_SIMULATED_HOUR * 1000;
-const DEFAULT_OVERSTAY_THRESHOLD_HOURS = 6;
+const DEFAULT_OVERSTAY_THRESHOLD_HOURS = 8;
 const MOCK_PASSWORD = "password123";
 const MOCK_ACCOUNTS = [
   { username: "entry1", role: "operator", gateId: "Entry-1" },
@@ -216,12 +216,26 @@ export function createMockApi({ delayMs = 150 } = {}) {
 
   const promoteBots = () => {
     const time = now();
+    let changed = false;
     for (const bot of sim.bots.values()) {
       if (bot.status === "parked" && time >= bot.exitAtMs) {
         bot.status = "waiting_exit";
         bot.exitGateId = randomExitGate();
         bot.exitQueuedAt = time;
+        const record = active().find((entry) => entry.ticketId === bot.ticketId);
+        if (record && !record.parkingEndTimestamp) {
+          record.parkingEndTimestamp = new Date(bot.exitAtMs).toISOString();
+        }
+        const spot = spots.find((candidate) => candidate.id === record?.spotId);
+        if (spot && spot.currentTransactionId === bot.ticketId) {
+          spot.status = "free";
+          spot.currentTransactionId = null;
+        }
+        changed = true;
       }
+    }
+    if (changed) {
+      emitSnapshot();
     }
   };
 
@@ -262,6 +276,7 @@ export function createMockApi({ delayMs = 150 } = {}) {
       status: "active",
       isOverstay: false,
     };
+    spot.currentTransactionId = ticketId;
     records.push(record);
     return record;
   };
@@ -288,6 +303,27 @@ export function createMockApi({ delayMs = 150 } = {}) {
     entryTimestamp: new Date(now() - 7.5 * SIMULATED_HOUR_MS).toISOString(),
     gateId: "Entry-1",
   });
+  park({
+    ticketId: "TKT-DEMO-004",
+    plateNumber: "KA04GH3456",
+    vehicleType: "2W",
+    entryTimestamp: new Date(now() - 1.2 * SIMULATED_HOUR_MS).toISOString(),
+    gateId: "Entry-2",
+  });
+  park({
+    ticketId: "TKT-DEMO-005",
+    plateNumber: "KA05MN7788",
+    vehicleType: "4W",
+    entryTimestamp: new Date(now() - 3.4 * SIMULATED_HOUR_MS).toISOString(),
+    gateId: "Entry-1",
+  });
+  park({
+    ticketId: "TKT-DEMO-006",
+    plateNumber: "KA06PQ9900",
+    vehicleType: "2W",
+    entryTimestamp: new Date(now() - 5.2 * SIMULATED_HOUR_MS).toISOString(),
+    gateId: "Entry-2",
+  });
 
   const active = () => records.filter((r) => r.status === "active");
   const publicRecord = ({ ticketId, plateNumber, vehicleType, entryTimestamp }) => ({
@@ -305,7 +341,13 @@ export function createMockApi({ delayMs = 150 } = {}) {
     );
 
   const spotView = (spot) => {
-    const record = active().find((entry) => entry.spotId === spot.id);
+    const record =
+      spot.status === "reserved"
+        ? active().find(
+            (entry) =>
+              entry.ticketId === spot.currentTransactionId && !entry.parkingEndTimestamp,
+          )
+        : null;
     const durationHours = record
       ? simulatedHours(new Date(record.entryTimestamp).getTime())
       : null;
@@ -353,6 +395,7 @@ export function createMockApi({ delayMs = 150 } = {}) {
   const overstayRows = () =>
     active()
       .filter((record) => {
+        if (record.parkingEndTimestamp) return false;
         const hours = simulatedHours(new Date(record.entryTimestamp).getTime());
         return record.isOverstay || hours >= overstayThresholdHours;
       })
@@ -452,8 +495,11 @@ export function createMockApi({ delayMs = 150 } = {}) {
               .toUpperCase(),
       );
       if (!record) return fail(404, "Vehicle not found");
+      const billingEnd = record.parkingEndTimestamp
+        ? new Date(record.parkingEndTimestamp).getTime()
+        : now();
       const durationSeconds =
-        simulatedHours(new Date(record.entryTimestamp).getTime()) * 3600;
+        simulatedHours(new Date(record.entryTimestamp).getTime(), billingEnd) * 3600;
       // Mirrors the backend's first-hour-free, tiered, exact-duration policy.
       const baseFare = calculateBaseFare(durationSeconds, record.vehicleType, fareConfig);
       const penaltyApplied = !ticketId;
@@ -463,10 +509,14 @@ export function createMockApi({ delayMs = 150 } = {}) {
       receiptSeq += 1;
       record.status = "completed";
       record.fare = fare;
-      record.exitTimestamp = new Date(now()).toISOString();
+      record.exitTimestamp = new Date(billingEnd).toISOString();
       record.exitGateId = gateId;
       record.exitOperatorId = { username: gateId === "Exit-1" ? "exit1" : "exit2" };
-      spots.find((s) => s.id === record.spotId).status = "free";
+      const parkedSpot = spots.find((s) => s.id === record.spotId);
+      if (parkedSpot && parkedSpot.currentTransactionId === record.ticketId) {
+        parkedSpot.status = "free";
+        parkedSpot.currentTransactionId = null;
+      }
       log("VEHICLE_EXIT");
       emit(record.spotId, "free");
       emitSnapshot();
@@ -698,18 +748,25 @@ export function createMockApi({ delayMs = 150 } = {}) {
         (r) => r.ticketId === vehicleId || r.spotId === vehicleId,
       );
       if (!record) return fail(404, "Active vehicle not found", "VEHICLE_NOT_FOUND");
+      const billingEnd = record.parkingEndTimestamp
+        ? new Date(record.parkingEndTimestamp).getTime()
+        : now();
       record.status = "completed";
-      record.exitTimestamp = new Date(now()).toISOString();
+      record.exitTimestamp = new Date(billingEnd).toISOString();
       record.penaltyApplied = true;
       const durationSeconds =
-        simulatedHours(new Date(record.entryTimestamp).getTime()) * 3600;
+        simulatedHours(new Date(record.entryTimestamp).getTime(), billingEnd) * 3600;
       const fareDetails = calculateBaseFare(
         durationSeconds,
         record.vehicleType,
         fareConfig,
       );
       record.fare = round2(fareDetails + fareConfig[record.vehicleType].overstayPenalty);
-      spots.find((s) => s.id === record.spotId).status = "free";
+      const parkedSpot = spots.find((s) => s.id === record.spotId);
+      if (parkedSpot && parkedSpot.currentTransactionId === record.ticketId) {
+        parkedSpot.status = "free";
+        parkedSpot.currentTransactionId = null;
+      }
       log("SPOT_FORCE_RELEASE", "admin");
       emit(record.spotId, "free");
       emitSnapshot();
@@ -927,8 +984,11 @@ export function createMockApi({ delayMs = 150 } = {}) {
       }
       const record = active().find((entry) => entry.ticketId === bot.ticketId);
       if (!record) return fail(409, "Vehicle has already exited", "ALREADY_EXITED");
+      const billingEnd = record.parkingEndTimestamp
+        ? new Date(record.parkingEndTimestamp).getTime()
+        : now();
       const durationSeconds =
-        simulatedHours(new Date(record.entryTimestamp).getTime()) * 3600;
+        simulatedHours(new Date(record.entryTimestamp).getTime(), billingEnd) * 3600;
       const baseFare = calculateBaseFare(durationSeconds, record.vehicleType, fareConfig);
       const lostTicket = bot.lostTicket;
       const penalty = lostTicket ? fareConfig[record.vehicleType].lostTicketPenalty : 0;

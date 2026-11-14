@@ -1,7 +1,10 @@
 "use strict";
 
 const { randomUUID } = require("node:crypto");
+const mongoose = require("mongoose");
 const { allocateSpot } = require("./allocationService");
+const Transaction = require("../models/Transaction");
+const Spot = require("../models/Spot");
 const {
   realMillisecondsForSimulatedHours,
   simulatedHoursBetween,
@@ -39,6 +42,12 @@ let completedExits = 0;
 let revenueCollected = 0;
 let lastError = null;
 let tickInProgress = false;
+let promotionListener = null;
+
+/** Registered by app.js so promoted cars also refresh every connected lot map. */
+function setPromotionListener(listener) {
+  promotionListener = typeof listener === "function" ? listener : null;
+}
 
 function randomPlateNumber() {
   return `BOT${randomUUID().replace(/-/g, "").slice(0, 7).toUpperCase()}`;
@@ -105,13 +114,51 @@ function publicExitBot(bot) {
 /** Move parked cars whose simulated stay has elapsed onto an exit queue. */
 function promoteParkedBots() {
   const now = Date.now();
+  const promoted = [];
   for (const bot of bots.values()) {
     if (bot.status !== "parked") continue;
     if (now < bot.exitAtMs) continue;
     bot.status = "waiting_exit";
     bot.exitGateId = randomItem(EXIT_GATES);
     bot.exitQueuedAt = now;
+    // The parking timer hit at exitAtMs; bill from there, not from when the
+    // 1-second tick (or an operator poll) actually noticed it.
+    const parkingEnd = new Date(bot.exitAtMs);
+    bot.parkingEndTimestamp = parkingEnd;
+
+    // The parking timer stops here: bill up to this instant, and free the spot
+    // immediately so the next car can use it while payment is pending.
+    if (mongoose.connection.readyState === 1) {
+      const transactionId = bot.transactionId;
+      const spotId = bot.spotId;
+      if (transactionId) {
+        void Transaction.updateOne(
+          { _id: transactionId, status: "active" },
+          { $set: { parkingEndTimestamp: parkingEnd } },
+        ).catch(() => {});
+      }
+      if (spotId && transactionId) {
+        void Spot.updateOne(
+          {
+            _id: spotId,
+            status: "reserved",
+            currentTransactionId: transactionId,
+          },
+          { $set: { status: "free", currentTransactionId: null } },
+        ).catch(() => {});
+      }
+    }
+    promoted.push(bot);
   }
+
+  if (promoted.length && promotionListener) {
+    try {
+      promotionListener(promoted);
+    } catch {
+      // A broadcast failure must not stop the fleet from moving.
+    }
+  }
+  return promoted;
 }
 
 function spawnBot() {
@@ -256,7 +303,7 @@ function getSimulationState() {
   const occupied = parked.length + waitingExit.length;
   const now = new Date();
   const overstayReady = parked.filter(
-    (bot) => simulatedHoursBetween(bot.entryTimestamp, now) >= 6,
+    (bot) => simulatedHoursBetween(bot.entryTimestamp, now) >= 8,
   ).length;
 
   return {
@@ -381,9 +428,29 @@ function inspectExitBot({ botId, gateId } = {}) {
     entryGateId: bot.entryGateId,
     entryTimestamp: bot.entryTimestamp,
     queuedAt: new Date(bot.exitQueuedAt).toISOString(),
+    parkingEndTimestamp: new Date(bot.parkingEndTimestamp).toISOString(),
     waitSeconds: Math.max(0, Math.round((Date.now() - bot.exitQueuedAt) / 1000)),
     intendedStayHours: bot.intendedStayHours,
   };
+}
+
+/**
+ * For manual lookups: if this car is a bot already waiting at an exit, bill it
+ * up to the moment it joined the queue instead of the current time.
+ */
+function findBotExitTime({ ticketId, plateNumber, transactionId } = {}) {
+  promoteParkedBots();
+  const normalizedPlate =
+    typeof plateNumber === "string" ? plateNumber.trim().toUpperCase() : null;
+  for (const bot of bots.values()) {
+    if (bot.status !== "waiting_exit") continue;
+    const matches =
+      (ticketId && bot.ticketId === ticketId) ||
+      (transactionId && bot.transactionId === transactionId) ||
+      (normalizedPlate && bot.plateNumber === normalizedPlate);
+    if (matches) return new Date(bot.parkingEndTimestamp ?? bot.exitQueuedAt);
+  }
+  return null;
 }
 
 /** Called after an exit is settled (by an operator or an admin force-release). */
@@ -495,7 +562,9 @@ module.exports = {
   getExitQueue,
   admitEntryBot,
   inspectExitBot,
+  findBotExitTime,
   markBotSettled,
+  setPromotionListener,
   setFareOverride,
   getFareOverride,
   clearFareOverrides,

@@ -98,6 +98,14 @@ async function allocateSpotInOrder(
       entryTimestamp,
       status: "active",
     });
+
+    // Track the owning transaction on the spot so a later release (normal exit,
+    // early exit-queue handoff, or force release) can never free a spot that
+    // has since been assigned to a different car.
+    await Spot.updateOne(
+      { _id: spot._id, status: "reserved" },
+      { $set: { currentTransactionId: transaction._id } },
+    );
   } catch (error) {
     // Release the claim if creating the vehicle or transaction fails. A unique
     // partial index on active transactions turns a concurrent duplicate entry

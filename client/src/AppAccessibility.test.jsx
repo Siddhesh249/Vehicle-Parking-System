@@ -27,7 +27,7 @@ describe("final accessibility pass", () => {
   });
 
   test.each([
-    ["/login", "Sign in", /one login/i],
+    ["/login", "Sign in", /^sign in$/i],
     ["/entry-1", "Entry Gate 1", /entry gate 1/i],
     ["/admin", "Admin Dashboard", /admin dashboard/i],
     ["/dev/simulate", "Developer tools", /developer tools/i],

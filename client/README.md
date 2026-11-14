@@ -63,10 +63,12 @@ frontend or server restart.
 
 The Simulation Console (`/dev/simulate`) starts a bot fleet. Bots queue at entry
 gates and are only parked when an entry operator presses **Generate ticket**.
-When a bot's intended stay ends it moves to an exit gate, where the exit
-operator scans the ticket (or handles a lost ticket), sees the fare quote, and
-presses **Payment collected**. The consoles poll their gate queue every 1.5
-seconds, so all five tabs stay in sync during the demo.
+When a bot's intended stay ends it frees its spot, moves to an exit gate and its
+billing clock stops; the exit operator scans the ticket (or handles a lost
+ticket), sees the frozen fare quote, and presses **Payment collected**. The
+consoles poll their gate queue every 1.5 seconds, so all five tabs stay in sync
+during the demo. `./run.sh` reseeds a clean demo state on each launch, so revenue
+and overstays do not carry over from a previous session.
 
 The Admin dashboard also has a raw **Database** panel: pick a collection tab to
 see every column, with rows scrolling inside a fixed-height table.

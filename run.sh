@@ -134,8 +134,8 @@ if port_in_use "$CLIENT_PORT"; then
   fail "Port ${CLIENT_PORT} is already in use. Stop the other process or set CLIENT_PORT."
 fi
 
-log "Seeding demo accounts and parking spots (idempotent)"
-npm --prefix server run seed
+log "Seeding demo accounts and parking spots (clean demo state)"
+SEED_RESET_DEMO="${SEED_RESET_DEMO:-true}" npm --prefix server run seed
 
 log "Starting the API on ${API_URL}"
 (

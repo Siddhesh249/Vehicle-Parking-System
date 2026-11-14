@@ -207,41 +207,10 @@ function App() {
             )}
           </>
         ) : isLogin ? (
-          <div className="login-shell">
-            <section className="login-hero" aria-labelledby="welcome-title">
-              <div className="login-hero__badge">
-                <Logo size={54} />
-              </div>
-              <p className="eyebrow">VEHICLE PARKING SYSTEM</p>
-              <h1 id="welcome-title" className="login-hero__headline">
-                One login.
-                <br />
-                Five live consoles.
-              </h1>
-              <p className="intro">
-                Sign in as an entry operator, exit operator or the lot manager. Every
-                session stays in sync in real time.
-              </p>
-              <ul className="login-hero__points">
-                <li>
-                  <strong>Entry gates</strong> issue tickets and allot spots atomically.
-                </li>
-                <li>
-                  <strong>Exit gates</strong> scan tickets, settle fares and handle lost
-                  slips.
-                </li>
-                <li>
-                  <strong>Admin</strong> watches revenue, overstays and the raw database
-                  live.
-                </li>
-              </ul>
-              <div className="login-hero__status">
-                <span className="live-dot" aria-hidden="true" />
-                {isReal ? "Live backend connected" : "Offline demo data"}
-                <span className="login-hero__separator">·</span>
-                <span>{isReal ? "live lot map" : "16 demo spots"}</span>
-              </div>
-            </section>
+          <div className="login-page">
+            <h1 id="page-title" className="visually-hidden">
+              Sign in
+            </h1>
             <LoginForm api={api} onSuccess={handleSignedIn} />
           </div>
         ) : (

@@ -92,7 +92,7 @@ describe("mock API (SAD 4.3 shapes)", () => {
     const api = createMockApi({ delayMs: 0 });
 
     expect(await api.getOverstayConfig()).toEqual(
-      expect.objectContaining({ thresholdHours: 6, minimumHours: 6 }),
+      expect.objectContaining({ thresholdHours: 8, minimumHours: 6 }),
     );
     await expect(api.updateOverstayConfig({ thresholdHours: 5 })).rejects.toMatchObject({
       status: 400,
@@ -103,14 +103,10 @@ describe("mock API (SAD 4.3 shapes)", () => {
     );
   });
 
-  test("lists vehicles whose demo duration already crossed the overstay threshold", async () => {
+  test("a fresh demo starts with green parked cars and no overstays", async () => {
     const api = createMockApi({ delayMs: 0 });
     const overstays = await api.getOverstays();
 
-    expect(overstays).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ ticketId: "TKT-DEMO-003", autoFlagged: true }),
-      ]),
-    );
+    expect(overstays).toEqual([]);
   });
 });

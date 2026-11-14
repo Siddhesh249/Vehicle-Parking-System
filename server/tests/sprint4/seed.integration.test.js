@@ -49,7 +49,7 @@ describe("demo seed data", () => {
     await expect(AuditLog.countDocuments()).resolves.toBe(result.demo.auditEntries);
     await expect(
       Transaction.countDocuments({ status: "active", isOverstay: true }),
-    ).resolves.toBeGreaterThanOrEqual(1);
+    ).resolves.toBe(0);
   });
 
   test("is idempotent when re-run", async () => {
@@ -64,6 +64,35 @@ describe("demo seed data", () => {
     );
     await expect(Transaction.countDocuments({ status: "completed" })).resolves.toBe(
       DEMO_COMPLETED_ENTRIES.length,
+    );
+  });
+
+  test("resetDemo clears stale parked cars and revenue before reseeding", async () => {
+    await seedDatabase({ password: "password123" });
+    const spot = await Spot.findOne({ zone: "4W" }).lean();
+    const user = await User.findOne({ username: "admin" }).lean();
+    const stray = await Transaction.create({
+      ticketId: "TKT-STALE-9999",
+      plateNumber: "KA99ST0001",
+      vehicleType: "4W",
+      spotId: spot._id,
+      entryGateId: "Entry-1",
+      entryOperatorId: user._id,
+      entryTimestamp: new Date(Date.now() - 3600 * 1000),
+      exitTimestamp: new Date(),
+      fare: 1_400_000,
+      status: "completed",
+    });
+
+    const result = await seedDatabase({ password: "password123", resetDemo: true });
+
+    expect(result.resetDemo).toBe(true);
+    await expect(Transaction.findById(stray._id)).resolves.toBeNull();
+    await expect(Transaction.countDocuments()).resolves.toBe(
+      DEMO_ACTIVE_ENTRIES.length + DEMO_COMPLETED_ENTRIES.length,
+    );
+    await expect(Transaction.countDocuments({ status: "active" })).resolves.toBe(
+      DEMO_ACTIVE_ENTRIES.length,
     );
   });
 });

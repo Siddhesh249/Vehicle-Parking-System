@@ -83,7 +83,7 @@ export default function BotExitPanel({ api, gateId, onSettled }) {
     <section className="console-panel bot-panel" aria-labelledby="bot-exit-title">
       <div className="panel-heading">
         <div>
-          <p className="eyebrow">SIMULATED CUSTOMER</p>
+          <p className="eyebrow">EXIT QUEUE</p>
           <h3 id="bot-exit-title">Vehicle at this gate</h3>
         </div>
         <span
@@ -219,8 +219,6 @@ export default function BotExitPanel({ api, gateId, onSettled }) {
                 <dl className="detail-list scan-details">
                   <dt>Ticket</dt>
                   <dd className="mono">{scanned.ticketId ?? "Lost — plate lookup"}</dd>
-                  <dt>Entry gate</dt>
-                  <dd>{scanned.entryGateId}</dd>
                   <dt>Parked</dt>
                   <dd>{formatHours(scanned.quote?.durationHours ?? 0)}</dd>
                   <dt>Amount due</dt>

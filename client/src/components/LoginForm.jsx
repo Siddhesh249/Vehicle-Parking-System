@@ -29,14 +29,12 @@ export default function LoginForm({
   const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
   const submitRef = useRef(null);
 
   function quickFill(account) {
     setUsername(account.username);
     setPassword(DEMO_PASSWORD);
     setError("");
-    setNotice(`${account.label} selected. Review and press Sign in.`);
     submitRef.current?.focus();
   }
 
@@ -48,7 +46,6 @@ export default function LoginForm({
       return;
     }
     setError("");
-    setNotice("");
     setBusy(true);
     try {
       const { token, role, gateId } = await api.login({
@@ -120,11 +117,6 @@ export default function LoginForm({
           {error}
         </p>
       )}
-      {notice && (
-        <p role="status" className="field-hint">
-          {notice}
-        </p>
-      )}
 
       <div className="demo-accounts">
         <div className="demo-accounts__heading">
@@ -132,8 +124,7 @@ export default function LoginForm({
           <span className="demo-pill">one click to fill</span>
         </div>
         <p className="field-hint">
-          Pick a role to pre-fill the form. The backend still verifies the password hash
-          and issues the JWT as usual.
+          Fills the form only. The backend still verifies the password and issues the JWT.
         </p>
         <div className="demo-accounts__grid">
           {demoAccounts.map((account) => (

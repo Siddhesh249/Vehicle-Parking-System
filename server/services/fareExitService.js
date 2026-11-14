@@ -7,6 +7,7 @@ const { calculateFareDetails } = require("./fareService");
 const { getFareConfig } = require("./fareConfigService");
 const { writeAuditEntry } = require("./auditService");
 const { simulatedHoursBetween } = require("../utils/simulatedTime");
+const { roundMoney } = require("../utils/money");
 
 function serviceError(message, code, statusCode) {
   const error = new Error(message);
@@ -79,8 +80,11 @@ async function quoteExit({ ticketId, plateNumber, exitTimestamp = new Date() } =
     throw error;
   }
 
+  const billingEnd = transaction.parkingEndTimestamp
+    ? new Date(transaction.parkingEndTimestamp)
+    : exitTime;
   const durationMilliseconds =
-    exitTime.getTime() - new Date(transaction.entryTimestamp).getTime();
+    billingEnd.getTime() - new Date(transaction.entryTimestamp).getTime();
   if (!Number.isFinite(durationMilliseconds) || durationMilliseconds < 0) {
     throw serviceError(
       "Exit timestamp cannot be before entry timestamp",
@@ -88,11 +92,11 @@ async function quoteExit({ ticketId, plateNumber, exitTimestamp = new Date() } =
       400,
     );
   }
-  const durationHours = simulatedHoursBetween(transaction.entryTimestamp, exitTime);
+  const durationHours = simulatedHoursBetween(transaction.entryTimestamp, billingEnd);
   const fareConfig = await getFareConfig(transaction.vehicleType);
   const fareDetails = calculateFareDetails(
     transaction.entryTimestamp,
-    exitTime,
+    billingEnd,
     transaction.vehicleType,
     { lostTicket },
     fareConfig,
@@ -105,13 +109,13 @@ async function quoteExit({ ticketId, plateNumber, exitTimestamp = new Date() } =
     spotId: String(transaction.spotId),
     entryGateId: transaction.entryGateId,
     entryTimestamp: transaction.entryTimestamp,
-    exitTimestamp: exitTime,
+    exitTimestamp: billingEnd,
     durationSeconds: durationHours * 3600,
     durationHours,
     lostTicket,
-    fare: fareDetails.total,
+    fare: roundMoney(fareDetails.total),
     breakdown: {
-      baseFare: fareDetails.baseFare,
+      baseFare: roundMoney(fareDetails.baseFare),
       ...(fareDetails.lostTicketPenalty
         ? { lostTicketPenalty: fareDetails.lostTicketPenalty }
         : {}),
@@ -159,8 +163,13 @@ async function processExit({
     throw error;
   }
 
+  // Parking time stops when the car joins the exit queue, not when the
+  // operator gets around to taking payment.
+  const billingEnd = transaction.parkingEndTimestamp
+    ? new Date(transaction.parkingEndTimestamp)
+    : exitTime;
   const durationMilliseconds =
-    exitTime.getTime() - new Date(transaction.entryTimestamp).getTime();
+    billingEnd.getTime() - new Date(transaction.entryTimestamp).getTime();
   if (!Number.isFinite(durationMilliseconds) || durationMilliseconds < 0) {
     throw serviceError(
       "Exit timestamp cannot be before entry timestamp",
@@ -168,12 +177,12 @@ async function processExit({
       400,
     );
   }
-  const durationHours = simulatedHoursBetween(transaction.entryTimestamp, exitTime);
+  const durationHours = simulatedHoursBetween(transaction.entryTimestamp, billingEnd);
   const durationSeconds = durationHours * 3600;
   const fareConfig = await getFareConfig(transaction.vehicleType);
   const fareDetails = calculateFareDetails(
     transaction.entryTimestamp,
-    exitTime,
+    billingEnd,
     transaction.vehicleType,
     {
       lostTicket,
@@ -191,9 +200,9 @@ async function processExit({
         status: "completed",
         exitGateId: gateId,
         exitOperatorId: operatorId,
-        exitTimestamp: exitTime,
+        exitTimestamp: billingEnd,
         durationSeconds,
-        fare: fareDetails.total,
+        fare: roundMoney(fareDetails.total),
         penaltyApplied: lostTicket,
       },
     },
@@ -209,7 +218,16 @@ async function processExit({
 
   try {
     await Spot.findOneAndUpdate(
-      { _id: settledTransaction.spotId, status: "reserved" },
+      {
+        _id: settledTransaction.spotId,
+        status: "reserved",
+        // Only free the spot if it still belongs to this transaction (or is a
+        // legacy row with no owner recorded). A newly parked car is untouched.
+        $or: [
+          { currentTransactionId: settledTransaction._id },
+          { currentTransactionId: null },
+        ],
+      },
       { $set: { status: "free", currentTransactionId: null } },
       { returnDocument: "after" },
     );
@@ -217,7 +235,7 @@ async function processExit({
     // Do not report a completed exit while its spot remains unavailable. The
     // compare-and-set prevents this compensation from undoing another exit.
     await Transaction.findOneAndUpdate(
-      { _id: settledTransaction._id, status: "completed", exitTimestamp: exitTime },
+      { _id: settledTransaction._id, status: "completed", exitTimestamp: billingEnd },
       {
         $set: { status: "active", penaltyApplied: false },
         $unset: {
@@ -256,13 +274,13 @@ async function processExit({
     spotId: String(settledTransaction.spotId),
     plateNumber: settledTransaction.plateNumber,
     entryTimestamp: settledTransaction.entryTimestamp,
-    exitTimestamp: exitTime,
+    exitTimestamp: billingEnd,
     durationSeconds,
     durationHours,
-    fare: fareDetails.total,
+    fare: roundMoney(fareDetails.total),
     penaltyApplied: lostTicket,
     breakdown: {
-      baseFare: fareDetails.baseFare,
+      baseFare: roundMoney(fareDetails.baseFare),
       ...(fareDetails.lostTicketPenalty
         ? { lostTicketPenalty: fareDetails.lostTicketPenalty }
         : {}),

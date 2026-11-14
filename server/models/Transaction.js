@@ -53,6 +53,9 @@ const transactionSchema = new mongoose.Schema(
       ref: "User",
     },
     exitTimestamp: Date,
+    // Set when a car stops being parked (e.g. it joins the exit queue). Billing
+    // and overstay checks stop at this instant, even if payment happens later.
+    parkingEndTimestamp: Date,
     durationSeconds: {
       type: Number,
       min: 0,

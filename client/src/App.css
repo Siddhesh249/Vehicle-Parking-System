@@ -3,15 +3,25 @@
 }
 
 body {
-  background:
-    radial-gradient(1100px 520px at 12% -8%, #ffe7e7 0%, transparent 60%),
-    radial-gradient(900px 480px at 92% 2%, #fff2ef 0%, transparent 55%), #fcfcfd;
+  background-color: #fdfcfd;
+  background-image:
+    radial-gradient(760px 440px at 8% -12%, rgba(201, 59, 59, 0.16), transparent 62%),
+    radial-gradient(680px 400px at 96% -4%, rgba(201, 59, 59, 0.1), transparent 60%),
+    repeating-linear-gradient(
+      135deg,
+      rgba(201, 59, 59, 0.035) 0 1px,
+      transparent 1px 24px
+    );
+  background-attachment: fixed;
 }
 
 .parking-app {
   --red: #c93b3b;
   --red-dark: #a41f1f;
   --red-soft: #fff1f1;
+  --c-red: var(--red);
+  --c-line: #e6e8ec;
+  --c-muted: #6d737c;
   --ink: #1d2025;
   --muted: #6d737c;
   --line: #e6e8ec;
@@ -19,12 +29,46 @@ body {
   --surface-2: #f8f9fb;
   --shadow-sm: 0 1px 2px rgba(20, 22, 26, 0.05);
   --shadow-md: 0 10px 28px rgba(20, 22, 26, 0.09);
+  position: relative;
+  isolation: isolate;
   width: min(1240px, calc(100% - 40px));
   min-height: 100vh;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
   color: var(--ink);
+}
+
+/* Abstract red shapes keep wide empty pages from looking unfinished. */
+.parking-app::before {
+  content: "";
+  position: fixed;
+  z-index: -1;
+  top: 96px;
+  right: -190px;
+  width: 520px;
+  height: 520px;
+  border-radius: 50%;
+  border: 1px solid rgba(201, 59, 59, 0.12);
+  background: radial-gradient(
+    circle at 30% 30%,
+    rgba(201, 59, 59, 0.16),
+    rgba(201, 59, 59, 0.03) 58%,
+    transparent 70%
+  );
+  pointer-events: none;
+}
+.parking-app::after {
+  content: "";
+  position: fixed;
+  z-index: -1;
+  left: -230px;
+  bottom: -260px;
+  width: 640px;
+  height: 640px;
+  border-radius: 50%;
+  border: 58px solid rgba(201, 59, 59, 0.07);
+  pointer-events: none;
 }
 
 .app-header {
@@ -39,6 +83,15 @@ body {
   border-bottom: 1px solid var(--line);
   background: rgba(252, 252, 253, 0.86);
   backdrop-filter: blur(10px);
+}
+.app-header::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: -1px;
+  width: 132px;
+  height: 2px;
+  background: linear-gradient(90deg, var(--red), rgba(201, 59, 59, 0));
 }
 
 .brand {
@@ -144,6 +197,15 @@ body {
   letter-spacing: -0.045em;
   font-weight: 700;
 }
+.welcome-panel h1::after {
+  content: "";
+  display: block;
+  width: 74px;
+  height: 4px;
+  margin-top: 14px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--red), rgba(201, 59, 59, 0.1));
+}
 .intro {
   max-width: 64ch;
   margin: 12px 0 0;
@@ -176,85 +238,23 @@ body {
   font-size: 11px;
 }
 
-/* Login: hero + form, the only entry point into the app. */
-.login-shell {
-  display: grid;
-  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
-  gap: 26px;
-  align-items: start;
-  padding: 40px 0 10px;
-}
-.login-hero {
+/* Login: a focused form, not a marketing landing page. */
+.login-page {
   position: relative;
-  overflow: hidden;
-  padding: 36px;
-  border: 1px solid #f1d2d2;
-  border-radius: 20px;
-  background:
-    radial-gradient(420px 260px at 100% 0%, #ffe0e0 0%, transparent 60%),
-    linear-gradient(155deg, #fff 0%, #fff6f6 55%, #ffecec 100%);
-  box-shadow: var(--shadow-md);
+  width: min(560px, 100%);
+  margin: 44px auto 0;
+  padding-bottom: 40px;
 }
-.login-hero::after {
+.login-page::before {
   content: "";
   position: absolute;
-  right: -70px;
-  bottom: -90px;
-  width: 260px;
-  height: 260px;
+  z-index: -1;
+  top: -26px;
+  right: -34px;
+  width: 170px;
+  height: 170px;
   border-radius: 50%;
-  border: 26px solid rgba(201, 59, 59, 0.09);
-}
-.login-hero__badge {
-  margin-bottom: 22px;
-}
-.login-hero__headline {
-  margin: 0;
-  font-size: clamp(34px, 4.6vw, 52px);
-  line-height: 1.04;
-  letter-spacing: -0.05em;
-  font-weight: 750;
-}
-.login-hero__points {
-  margin: 24px 0 0;
-  padding: 0;
-  list-style: none;
-  display: grid;
-  gap: 10px;
-  color: #4b5058;
-  font-size: 14px;
-}
-.login-hero__points li {
-  position: relative;
-  padding-left: 22px;
-}
-.login-hero__points li::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 7px;
-  width: 8px;
-  height: 8px;
-  border-radius: 2px;
-  background: var(--red);
-  transform: rotate(45deg);
-}
-.login-hero__points strong {
-  color: var(--ink);
-}
-.login-hero__status {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin-top: 26px;
-  padding-top: 18px;
-  border-top: 1px solid #f0d6d6;
-  color: var(--muted);
-  font-size: 13px;
-}
-.login-hero__separator {
-  opacity: 0.5;
+  border: 18px solid rgba(201, 59, 59, 0.08);
 }
 
 .button-row {
@@ -321,18 +321,12 @@ body {
   }
 }
 
-@media (max-width: 900px) {
-  .login-shell {
-    grid-template-columns: 1fr;
-  }
-  .login-hero {
-    padding: 28px;
-  }
-}
-
 @media (max-width: 640px) {
   .parking-app {
     width: calc(100% - 28px);
+  }
+  .login-page {
+    margin-top: 24px;
   }
   .app-header {
     min-height: 70px;

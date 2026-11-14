@@ -53,7 +53,7 @@ export default function BotEntryPanel({ api, gateId, onAdmitted }) {
     <section className="console-panel bot-panel" aria-labelledby="bot-entry-title">
       <div className="panel-heading">
         <div>
-          <p className="eyebrow">SIMULATED CUSTOMER</p>
+          <p className="eyebrow">ENTRY QUEUE</p>
           <h3 id="bot-entry-title">Vehicle at this gate</h3>
         </div>
         <span
