@@ -479,8 +479,9 @@ export default function SimulationConsole({ api }) {
         </p>
       )}
       <p className="field-hint">
-        Developer-only control. Supported rate: 1–600 arrivals per minute. Routes return
-        404 when DISABLE_SIMULATION=true or NODE_ENV=production.
+        Start around 30–60 cars per minute for a comfortable demo. Each gate holds up to 8
+        waiting cars; extra arrivals count as overflow. This tool is dev-only and is
+        compiled out of production builds.
       </p>
     </section>
   );

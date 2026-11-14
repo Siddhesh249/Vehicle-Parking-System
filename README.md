@@ -85,7 +85,7 @@ The Admin dashboard can edit the fare tiers, first-hour policy, lost-ticket/over
 - Cars queue at the entry gate. The entry operator presses **Generate ticket**, which creates a real spot allocation and transaction exactly like a manual entry.
 - When its intended stay ends, each car drives to an exit gate and appears in that operator's queue. The exit operator presses **Scan ticket** (or handles a lost-ticket plate lookup), sees the fare, then presses **Payment collected** to settle it. Revenue updates in the admin dashboard as cars leave.
 - Can change the traffic rate while running and apply/clear runtime fare-tier overrides, so a demo can show a changed fare without editing the database or restarting the server.
-- Is excluded from the Gate Operator and Admin role navigation. In production (`NODE_ENV=production`) or when `DISABLE_SIMULATION=true`, its routes return 404.
+- Is excluded from the Gate Operator and Admin role navigation. The production client build does not render the page, and its server routes return 404 in production (`NODE_ENV=production`) or when `DISABLE_SIMULATION=true`.
 - Its k6 load-test companion is `loadtest/entry-concurrency.js`.
 
 ## 10. Frontend look and feel

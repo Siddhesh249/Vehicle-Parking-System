@@ -13,6 +13,8 @@ export default defineConfig(({ mode }) => {
     // The process environment wins so run.sh can switch modes without writing a .env file.
     define: {
       __API_MODE__: JSON.stringify(apiMode === "real" ? "real" : "mock"),
+      // Production builds must not render the developer tool, even by direct URL.
+      __PRODUCTION__: JSON.stringify(mode === "production"),
       // Local demo quick-fill password; the backend still verifies it normally.
       __DEMO_PASSWORD__: JSON.stringify(
         process.env.VITE_DEMO_PASSWORD || env.VITE_DEMO_PASSWORD || "password123",

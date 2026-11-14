@@ -17,7 +17,8 @@ Run the app at the route for a console, such as `/entry-1` or `/admin`.
 Opening `/` or `/login` shows the sign-in page first; demo buttons pre-fill each
 gate account, but the credentials still go through the normal login API.
 The Simulation Console is at `/dev/simulate` and is intentionally absent from
-the role navigation. `./run.sh` opens it in a second tab.
+the role navigation. It is also compiled out of production builds; `./run.sh`
+opens it in a second tab during local demos.
 
 ## Talking to the backend
 

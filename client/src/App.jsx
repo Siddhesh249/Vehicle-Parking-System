@@ -1,3 +1,4 @@
+/* global __PRODUCTION__ */
 import { useCallback, useEffect, useState } from "react";
 import "./App.css";
 import { api, apiMode, realtime } from "./api/index.js";
@@ -21,6 +22,8 @@ const consoles = [
 // "mock" (default) or "real" — set VITE_API_MODE=real to talk to the backend (see client/README.md).
 const isReal = apiMode === "real";
 const isDemo = !isReal;
+// The developer tool is compiled out of production builds.
+const isProduction = typeof __PRODUCTION__ !== "undefined" && __PRODUCTION__;
 
 // Where each account lands after signing in: admin -> /admin, "Entry-1" -> /entry-1, ...
 const homePathFor = ({ role, gateId }) =>
@@ -64,7 +67,7 @@ function App() {
   const currentConsole = consoles.find(({ path: consolePath }) => consolePath === path);
   const isLogin = path === "/login" || path === "/";
   // Developer-only: reachable by typing the address or via run.sh, never linked from a role console (VPS-DEV-003).
-  const isSimulation = path === "/dev/simulate";
+  const isSimulation = path === "/dev/simulate" && !isProduction;
   const canUseConsole =
     !isReal ||
     Boolean(
