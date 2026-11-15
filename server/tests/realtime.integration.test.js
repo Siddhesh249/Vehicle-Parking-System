@@ -203,6 +203,7 @@ describe("S3-T3 — Socket.io server event contracts (SAD 4.3.8)", () => {
         plateNumber: "KA02CD5678",
         gateId: "Exit-1",
         duration: expect.any(Number),
+        durationHours: expect.any(Number),
       });
 
       const freed = waitFor(admin.socket, "spot:update");

@@ -5,15 +5,34 @@ import { useCallback, useEffect, useReducer, useState } from "react";
 export function lotReducer(state, action) {
   switch (action.type) {
     case "loaded":
-      return state.synced ? state : { ...state, spots: action.spots };
+      if (state.synced) return state;
+      return {
+        ...state,
+        spots: action.spots,
+        timeScale: action.timeScale ?? state.timeScale,
+        overstayThresholdHours:
+          action.overstayThresholdHours ?? state.overstayThresholdHours,
+      };
     case "snapshot":
-      return { spots: action.spots, synced: true };
+      return {
+        spots: action.spots,
+        synced: true,
+        timeScale: action.timeScale ?? state.timeScale,
+        overstayThresholdHours:
+          action.overstayThresholdHours ?? state.overstayThresholdHours,
+      };
     case "update":
       if (!state.spots) return state;
       return {
         ...state,
         spots: state.spots.map((spot) =>
-          spot.id === action.spotId ? { ...spot, status: action.status } : spot,
+          spot.id === action.spotId
+            ? {
+                ...spot,
+                status: action.status,
+                ...(action.status === "free" ? { vehicle: null } : {}),
+              }
+            : spot,
         ),
       };
     default:
@@ -23,7 +42,12 @@ export function lotReducer(state, action) {
 
 // Lot state = initial GET /api/lot/status, then kept current by spot:update / lot:snapshot.
 export default function useLiveLot({ api, realtime }) {
-  const [lot, dispatch] = useReducer(lotReducer, { spots: null, synced: false });
+  const [lot, dispatch] = useReducer(lotReducer, {
+    spots: null,
+    synced: false,
+    timeScale: null,
+    overstayThresholdHours: null,
+  });
   const [error, setError] = useState(null);
   const [connection, setConnection] = useState(realtime ? "connecting" : null);
   const [attempt, setAttempt] = useState(0);
@@ -32,7 +56,14 @@ export default function useLiveLot({ api, realtime }) {
     let cancelled = false;
     new Promise((resolve) => resolve(api.getLotStatus()))
       .then((data) => {
-        if (!cancelled) dispatch({ type: "loaded", spots: data.spots });
+        if (!cancelled) {
+          dispatch({
+            type: "loaded",
+            spots: data.spots,
+            timeScale: data.timeScale,
+            overstayThresholdHours: data.overstayThresholdHours,
+          });
+        }
       })
       .catch((err) => {
         if (!cancelled) setError(err);
@@ -45,7 +76,13 @@ export default function useLiveLot({ api, realtime }) {
   useEffect(() => {
     if (!realtime) return undefined;
     return realtime.subscribe({
-      onSnapshot: (spots) => dispatch({ type: "snapshot", spots }),
+      onSnapshot: (payload) =>
+        dispatch({
+          type: "snapshot",
+          spots: payload.spots ?? payload,
+          timeScale: payload.timeScale,
+          overstayThresholdHours: payload.overstayThresholdHours,
+        }),
       onUpdate: ({ spotId, status }) => dispatch({ type: "update", spotId, status }),
       onStatus: setConnection,
     });
@@ -57,5 +94,13 @@ export default function useLiveLot({ api, realtime }) {
   }, []);
 
   const status = lot.spots ? "ready" : error ? "error" : "loading";
-  return { status, spots: lot.spots ?? [], error, connection, retry };
+  return {
+    status,
+    spots: lot.spots ?? [],
+    timeScale: lot.timeScale,
+    overstayThresholdHours: lot.overstayThresholdHours,
+    error,
+    connection,
+    retry,
+  };
 }

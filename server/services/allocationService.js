@@ -7,6 +7,7 @@ const Transaction = require("../models/Transaction");
 const { writeAuditEntry } = require("./auditService");
 
 const ENTRY_GATES = new Set(["Entry-1", "Entry-2"]);
+const allocationQueues = new Map();
 
 function inputError(message) {
   const error = new TypeError(message);
@@ -37,7 +38,10 @@ async function releaseClaimedSpot(spotId) {
  * cannot both reserve the same free spot. The entry timestamp is generated on
  * the server when the service receives the request; callers cannot supply it.
  */
-async function allocateSpot({ plateNumber, vehicleType, gateId, operatorId }) {
+async function allocateSpotInOrder(
+  { plateNumber, vehicleType, gateId, operatorId },
+  entryTimestamp,
+) {
   if (typeof plateNumber !== "string" || !plateNumber.trim()) {
     throw inputError("plateNumber is required");
   }
@@ -52,8 +56,6 @@ async function allocateSpot({ plateNumber, vehicleType, gateId, operatorId }) {
   }
 
   const normalizedPlate = plateNumber.trim().toUpperCase();
-  // Capture arrival time before database work so latency cannot reorder FCFS timestamps.
-  const entryTimestamp = new Date();
 
   const spot = await Spot.findOneAndUpdate(
     { zone: vehicleType, status: "free" },
@@ -96,6 +98,14 @@ async function allocateSpot({ plateNumber, vehicleType, gateId, operatorId }) {
       entryTimestamp,
       status: "active",
     });
+
+    // Track the owning transaction on the spot so a later release (normal exit,
+    // early exit-queue handoff, or force release) can never free a spot that
+    // has since been assigned to a different car.
+    await Spot.updateOne(
+      { _id: spot._id, status: "reserved" },
+      { $set: { currentTransactionId: transaction._id } },
+    );
   } catch (error) {
     // Release the claim if creating the vehicle or transaction fails. A unique
     // partial index on active transactions turns a concurrent duplicate entry
@@ -133,6 +143,32 @@ async function allocateSpot({ plateNumber, vehicleType, gateId, operatorId }) {
       spotId: String(spot._id),
     }),
   };
+}
+
+/**
+ * Queue same-zone requests in the order they reach this service. The project
+ * runs one local Node process; this preserves server-received FCFS ordering
+ * while MongoDB's atomic free-spot claim remains the cross-request safety net.
+ */
+function allocateSpot(input = {}) {
+  const receivedAt = new Date();
+  const allocationInput = input && typeof input === "object" ? input : {};
+  const queueKey = allocationInput.vehicleType;
+  const previous = allocationQueues.get(queueKey) || Promise.resolve();
+  const current = previous
+    .catch(() => {})
+    .then(() => allocateSpotInOrder(allocationInput, receivedAt));
+  const tail = current.then(
+    () => undefined,
+    () => undefined,
+  );
+
+  allocationQueues.set(queueKey, tail);
+  tail.finally(() => {
+    if (allocationQueues.get(queueKey) === tail) allocationQueues.delete(queueKey);
+  });
+
+  return current;
 }
 
 module.exports = { allocateSpot };

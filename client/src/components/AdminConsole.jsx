@@ -1,18 +1,20 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import usePanel from "../hooks/usePanel.js";
 import {
   errorMessage,
-  formatDuration,
+  formatHours,
   formatMoney,
   formatTimestamp,
 } from "../utils/format.js";
+import AdminConfig from "./AdminConfig.jsx";
 import { OccupancyChart, RevenueChart } from "./Charts.jsx";
+import DatabaseViewer from "./DatabaseViewer.jsx";
 import "./Console.css";
 
 // Wraps one panel: loading text, a recoverable error, or the loaded content.
-function Panel({ title, state, children }) {
+function Panel({ title, state, children, wide = false }) {
   return (
-    <section className="console-panel">
+    <section className={`console-panel ${wide ? "console-panel--wide" : ""}`.trim()}>
       <h3>{title}</h3>
       {state.status === "loading" && <p role="status">Loading {title.toLowerCase()}…</p>}
       {state.status === "error" && (
@@ -33,11 +35,23 @@ function Panel({ title, state, children }) {
 const cell = (value) =>
   value === undefined || value === null || value === "" ? "—" : value;
 
+const operatorLabel = (value) => {
+  if (!value) return "—";
+  if (typeof value === "object") return value.username ?? String(value._id ?? "—");
+  return String(value).slice(-6);
+};
+
+const gateRoute = (record) => {
+  const entry = record.entryGateId ?? "Entry";
+  return record.exitGateId ? `${entry} → ${record.exitGateId}` : entry;
+};
+
 // Admin dashboard panels against the SAD 4.3.5 / 4.3.6 responses (VPS-F-041..054, VPS-F-060).
 export default function AdminConsole({ api, realtime }) {
   const [plateInput, setPlateInput] = useState("");
   const [plateFilter, setPlateFilter] = useState("");
-  const [alerts, setAlerts] = useState([]);
+  const [manualAlerts, setManualAlerts] = useState([]);
+  const [releasedAlertIds, setReleasedAlertIds] = useState([]);
   const [releasing, setReleasing] = useState(null);
   const [alertError, setAlertError] = useState("");
 
@@ -48,11 +62,17 @@ export default function AdminConsole({ api, realtime }) {
     [api, plateFilter],
   );
   const fetchAudit = useCallback(() => api.getAuditLog(), [api]);
+  const fetchOverstays = useCallback(async () => {
+    if (typeof api.getOverstays !== "function") return [];
+    const rows = await api.getOverstays();
+    return Array.isArray(rows) ? rows : (rows?.overstays ?? []);
+  }, [api]);
 
   const occupancy = usePanel(fetchOccupancy);
   const revenue = usePanel(fetchRevenue);
   const transactions = usePanel(fetchTransactions);
   const audit = usePanel(fetchAudit);
+  const overstays = usePanel(fetchOverstays);
 
   // Live refresh: any spot change can alter occupancy, revenue, transactions and the audit log.
   // Debounced so a burst of updates causes one reload (the refresh functions are stable).
@@ -60,12 +80,39 @@ export default function AdminConsole({ api, realtime }) {
   const refreshRevenue = revenue.refresh;
   const refreshTransactions = transactions.refresh;
   const refreshAudit = audit.refresh;
+  const refreshOverstays = overstays.refresh;
   const refreshAll = useCallback(() => {
     refreshOccupancy();
     refreshRevenue();
     refreshTransactions();
     refreshAudit();
-  }, [refreshOccupancy, refreshRevenue, refreshTransactions, refreshAudit]);
+    refreshOverstays();
+  }, [
+    refreshOccupancy,
+    refreshRevenue,
+    refreshTransactions,
+    refreshAudit,
+    refreshOverstays,
+  ]);
+
+  // Overstays appear automatically after the configured threshold even when
+  // no operator pressed "notify", so load and periodically refresh the feed.
+  const alerts = useMemo(() => {
+    const autoAlerts = overstays.status === "ready" ? overstays.data : [];
+    const seen = new Set(releasedAlertIds);
+    const merged = [];
+    for (const alert of [...manualAlerts, ...autoAlerts]) {
+      if (!alert?.vehicleId || seen.has(alert.vehicleId)) continue;
+      seen.add(alert.vehicleId);
+      merged.push(alert);
+    }
+    return merged;
+  }, [manualAlerts, overstays.status, overstays.data, releasedAlertIds]);
+
+  useEffect(() => {
+    const timer = setInterval(refreshOverstays, 5000);
+    return () => clearInterval(timer);
+  }, [refreshOverstays]);
 
   useEffect(() => {
     if (!realtime) return undefined;
@@ -78,7 +125,10 @@ export default function AdminConsole({ api, realtime }) {
       onUpdate: refreshSoon,
       onOverstay: (alert) => {
         if (!alert?.vehicleId) return;
-        setAlerts((current) =>
+        setReleasedAlertIds((current) =>
+          current.filter((vehicleId) => vehicleId !== alert.vehicleId),
+        );
+        setManualAlerts((current) =>
           current.some(({ vehicleId }) => vehicleId === alert.vehicleId)
             ? current
             : [alert, ...current],
@@ -97,7 +147,10 @@ export default function AdminConsole({ api, realtime }) {
     setReleasing(alert.vehicleId);
     try {
       await api.forceRelease(alert.vehicleId);
-      setAlerts((current) =>
+      setReleasedAlertIds((current) =>
+        current.includes(alert.vehicleId) ? current : [...current, alert.vehicleId],
+      );
+      setManualAlerts((current) =>
         current.filter(({ vehicleId }) => vehicleId !== alert.vehicleId),
       );
       refreshAll();
@@ -128,7 +181,9 @@ export default function AdminConsole({ api, realtime }) {
                     {alert.plateNumber ?? alert.ticketId ?? alert.vehicleId}
                   </strong>
                   <span className="field-hint">
-                    {`${alert.gateId ?? "Gate"} · parked ${formatDuration(alert.duration ?? 0)}`}
+                    {`${alert.gateId ?? "Gate"} · parked ${formatHours(
+                      alert.durationHours ?? (alert.duration ?? 0) / 3600,
+                    )}`}
                   </span>
                 </div>
                 <button
@@ -150,17 +205,21 @@ export default function AdminConsole({ api, realtime }) {
           <>
             <p className="big-number">{`${data.totalPct}%`}</p>
             <ul className="zone-list">
-              {Object.entries(data.byZone ?? {}).map(([zone, { occupied, total }]) => (
-                <li key={zone}>
-                  <span>{`${zone}: ${occupied} of ${total} occupied`}</span>
-                  <meter
-                    min={0}
-                    max={total}
-                    value={occupied}
-                    aria-label={`${zone} zone occupancy`}
-                  />
-                </li>
-              ))}
+              {Object.entries(data.byZone ?? {}).map(
+                ([zone, { occupied, total, pct }]) => (
+                  <li key={zone}>
+                    <span>{`${zone}: ${occupied} of ${total} occupied${
+                      Number.isFinite(pct) ? ` (${pct}%)` : ""
+                    }`}</span>
+                    <meter
+                      min={0}
+                      max={Math.max(total, 1)}
+                      value={occupied}
+                      aria-label={`${zone} zone occupancy`}
+                    />
+                  </li>
+                ),
+              )}
             </ul>
             <OccupancyChart history={data.history} />
           </>
@@ -181,7 +240,7 @@ export default function AdminConsole({ api, realtime }) {
         )}
       </Panel>
 
-      <Panel title="Transactions" state={transactions}>
+      <Panel title="Transactions" state={transactions} wide>
         {(data) => (
           <>
             <form
@@ -207,13 +266,17 @@ export default function AdminConsole({ api, realtime }) {
               <p className="field-hint">No transactions found.</p>
             ) : (
               <div className="table-wrap">
-                <table>
+                <table aria-label="Transactions">
                   <thead>
                     <tr>
                       <th scope="col">Ticket</th>
                       <th scope="col">Plate</th>
                       <th scope="col">Type</th>
                       <th scope="col">Status</th>
+                      <th scope="col">Entry</th>
+                      <th scope="col">Exit</th>
+                      <th scope="col">Gate</th>
+                      <th scope="col">Operators</th>
                       <th scope="col">Fare</th>
                     </tr>
                   </thead>
@@ -224,6 +287,19 @@ export default function AdminConsole({ api, realtime }) {
                         <td className="mono">{cell(r.plateNumber)}</td>
                         <td>{cell(r.vehicleType)}</td>
                         <td>{cell(r.status)}</td>
+                        <td>
+                          {r.entryTimestamp ? formatTimestamp(r.entryTimestamp) : "—"}
+                        </td>
+                        <td>
+                          {r.exitTimestamp ? formatTimestamp(r.exitTimestamp) : "—"}
+                        </td>
+                        <td>{gateRoute(r)}</td>
+                        <td>
+                          {operatorLabel(r.entryOperatorId)}
+                          {r.exitOperatorId
+                            ? ` → ${operatorLabel(r.exitOperatorId)}`
+                            : ""}
+                        </td>
                         <td>{typeof r.fare === "number" ? formatMoney(r.fare) : "—"}</td>
                       </tr>
                     ))}
@@ -235,17 +311,18 @@ export default function AdminConsole({ api, realtime }) {
         )}
       </Panel>
 
-      <Panel title="Audit log" state={audit}>
+      <Panel title="Audit log" state={audit} wide>
         {(data) =>
           data.entries.length === 0 ? (
             <p className="field-hint">No audit entries yet.</p>
           ) : (
             <div className="table-wrap">
-              <table>
+              <table aria-label="Audit log">
                 <thead>
                   <tr>
                     <th scope="col">Action</th>
                     <th scope="col">Actor</th>
+                    <th scope="col">Role</th>
                     <th scope="col">Time</th>
                   </tr>
                 </thead>
@@ -253,6 +330,7 @@ export default function AdminConsole({ api, realtime }) {
                   {data.entries.map((e, index) => (
                     <tr key={`${e.createdAt}-${index}`}>
                       <td className="mono">{e.action}</td>
+                      <td>{operatorLabel(e.actorId)}</td>
                       <td>{cell(e.actorRole)}</td>
                       <td>{formatTimestamp(e.createdAt)}</td>
                     </tr>
@@ -263,6 +341,17 @@ export default function AdminConsole({ api, realtime }) {
           )
         }
       </Panel>
+
+      {typeof api.getDatabase === "function" && <DatabaseViewer api={api} />}
+
+      {typeof api.getFareConfig === "function" &&
+        typeof api.updateFareTiers === "function" &&
+        typeof api.getSpotConfig === "function" &&
+        typeof api.updateSpotCount === "function" &&
+        typeof api.getOverstayConfig === "function" &&
+        typeof api.updateOverstayConfig === "function" && (
+          <AdminConfig api={api} onChanged={refreshAll} />
+        )}
     </div>
   );
 }

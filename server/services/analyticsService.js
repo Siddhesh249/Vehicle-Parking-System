@@ -2,6 +2,7 @@
 
 const Spot = require("../models/Spot");
 const Transaction = require("../models/Transaction");
+const { roundMoney } = require("../utils/money");
 
 const ZONES = ["2W", "4W"];
 const HOUR_MS = 60 * 60 * 1000;
@@ -50,10 +51,13 @@ async function getOccupancy({ now = new Date(), historyHours = 24 } = {}) {
   const history = [];
   for (let hoursAgo = historyHours; hoursAgo >= 0; hoursAgo -= 1) {
     const at = new Date(now.getTime() - hoursAgo * HOUR_MS);
-    const parked = overlapping.filter(
-      ({ entryTimestamp, exitTimestamp }) =>
-        entryTimestamp <= at && (!exitTimestamp || exitTimestamp > at),
-    ).length;
+    const parked = Math.min(
+      total,
+      overlapping.filter(
+        ({ entryTimestamp, exitTimestamp }) =>
+          entryTimestamp <= at && (!exitTimestamp || exitTimestamp > at),
+      ).length,
+    );
     history.push({ timestamp: at, occupied: parked, pct: percentage(parked, total) });
   }
 
@@ -84,11 +88,15 @@ async function getRevenue() {
 
   const byZone = {};
   for (const zone of ZONES) byZone[zone] = 0;
-  for (const { _id, total } of result.byZone) byZone[_id] = total;
+  for (const { _id, total } of result.byZone) byZone[_id] = roundMoney(total);
 
   return {
-    total: result.total[0]?.total ?? 0,
-    byDay: result.byDay.map(({ _id, total, count }) => ({ date: _id, total, count })),
+    total: roundMoney(result.total[0]?.total ?? 0),
+    byDay: result.byDay.map(({ _id, total, count }) => ({
+      date: _id,
+      total: roundMoney(total),
+      count,
+    })),
     byZone,
   };
 }

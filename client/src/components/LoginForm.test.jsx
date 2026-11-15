@@ -11,7 +11,11 @@ async function fill(user, username, password) {
 describe("LoginForm (VPS-F-001..005)", () => {
   test("masks the password and signs in with the entered credentials", async () => {
     const user = userEvent.setup();
-    const api = { login: jest.fn().mockResolvedValue({ token: "jwt", role: "operator", gateId: "Exit-1" }) };
+    const api = {
+      login: jest
+        .fn()
+        .mockResolvedValue({ token: "jwt", role: "operator", gateId: "Exit-1" }),
+    };
     const onSuccess = jest.fn();
     render(<LoginForm api={api} onSuccess={onSuccess} />);
 
@@ -19,12 +23,18 @@ describe("LoginForm (VPS-F-001..005)", () => {
     await fill(user, " exit1 ", "s3cret");
 
     expect(api.login).toHaveBeenCalledWith({ username: "exit1", password: "s3cret" });
-    expect(onSuccess).toHaveBeenCalledWith({ token: "jwt", role: "operator", gateId: "Exit-1" });
+    expect(onSuccess).toHaveBeenCalledWith({
+      token: "jwt",
+      role: "operator",
+      gateId: "Exit-1",
+    });
   });
 
   test("shows an invalid-credentials error and clears the password", async () => {
     const user = userEvent.setup();
-    const api = { login: jest.fn().mockRejectedValue({ status: 401, message: "Invalid credentials" }) };
+    const api = {
+      login: jest.fn().mockRejectedValue({ status: 401, message: "Invalid credentials" }),
+    };
     const onSuccess = jest.fn();
     render(<LoginForm api={api} onSuccess={onSuccess} />);
     await fill(user, "exit1", "wrong");
@@ -37,7 +47,11 @@ describe("LoginForm (VPS-F-001..005)", () => {
 
   test("shows the locked-account message", async () => {
     const user = userEvent.setup();
-    const api = { login: jest.fn().mockRejectedValue({ status: 423, message: "Account locked. Try again later." }) };
+    const api = {
+      login: jest
+        .fn()
+        .mockRejectedValue({ status: 423, message: "Account locked. Try again later." }),
+    };
     render(<LoginForm api={api} onSuccess={jest.fn()} />);
     await fill(user, "exit1", "wrong");
 
@@ -50,7 +64,9 @@ describe("LoginForm (VPS-F-001..005)", () => {
     render(<LoginForm api={api} onSuccess={jest.fn()} />);
     await user.click(screen.getByRole("button", { name: /sign in/i }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(/enter your username and password/i);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /enter your username and password/i,
+    );
     expect(api.login).not.toHaveBeenCalled();
   });
 });

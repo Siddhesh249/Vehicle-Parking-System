@@ -6,6 +6,8 @@ const Spot = require("../models/Spot");
 const { calculateFareDetails } = require("./fareService");
 const { getFareConfig } = require("./fareConfigService");
 const { writeAuditEntry } = require("./auditService");
+const { simulatedHoursBetween } = require("../utils/simulatedTime");
+const { roundMoney } = require("../utils/money");
 
 function serviceError(message, code, statusCode) {
   const error = new Error(message);
@@ -47,6 +49,83 @@ async function searchByPlate(plateNumber) {
   return [transaction];
 }
 
+/**
+ * Read-only fare preview used by the exit console after scanning a ticket.
+ * It applies exactly the same rules as processExit (including the lost-ticket
+ * penalty) but never mutates the transaction.
+ */
+async function quoteExit({ ticketId, plateNumber, exitTimestamp = new Date() } = {}) {
+  const exitTime = new Date(exitTimestamp);
+  if (!Number.isFinite(exitTime.getTime())) {
+    throw serviceError("exitTimestamp must be a valid date", "INVALID_REQUEST", 400);
+  }
+
+  const lostTicket = !(typeof ticketId === "string" && ticketId.trim());
+  if (lostTicket && !(typeof plateNumber === "string" && plateNumber.trim())) {
+    throw serviceError("A ticketId or plateNumber is required", "INVALID_REQUEST", 400);
+  }
+
+  let transaction;
+  try {
+    if (!lostTicket) transaction = await lookupByTicket(ticketId);
+    else transaction = (await searchByPlate(plateNumber))[0];
+  } catch (error) {
+    if (error.code === "VEHICLE_NOT_FOUND") {
+      throw serviceError(
+        "Vehicle has already exited or was not found",
+        "ALREADY_EXITED",
+        409,
+      );
+    }
+    throw error;
+  }
+
+  const billingEnd = transaction.parkingEndTimestamp
+    ? new Date(transaction.parkingEndTimestamp)
+    : exitTime;
+  const durationMilliseconds =
+    billingEnd.getTime() - new Date(transaction.entryTimestamp).getTime();
+  if (!Number.isFinite(durationMilliseconds) || durationMilliseconds < 0) {
+    throw serviceError(
+      "Exit timestamp cannot be before entry timestamp",
+      "INVALID_REQUEST",
+      400,
+    );
+  }
+  const durationHours = simulatedHoursBetween(transaction.entryTimestamp, billingEnd);
+  const fareConfig = await getFareConfig(transaction.vehicleType);
+  const fareDetails = calculateFareDetails(
+    transaction.entryTimestamp,
+    billingEnd,
+    transaction.vehicleType,
+    { lostTicket },
+    fareConfig,
+  );
+
+  return {
+    ticketId: transaction.ticketId,
+    plateNumber: transaction.plateNumber,
+    vehicleType: transaction.vehicleType,
+    spotId: String(transaction.spotId),
+    entryGateId: transaction.entryGateId,
+    entryTimestamp: transaction.entryTimestamp,
+    exitTimestamp: billingEnd,
+    durationSeconds: durationHours * 3600,
+    durationHours,
+    lostTicket,
+    fare: roundMoney(fareDetails.total),
+    breakdown: {
+      baseFare: roundMoney(fareDetails.baseFare),
+      ...(fareDetails.lostTicketPenalty
+        ? { lostTicketPenalty: fareDetails.lostTicketPenalty }
+        : {}),
+      ...(fareDetails.overstayPenalty
+        ? { overstayPenalty: fareDetails.overstayPenalty }
+        : {}),
+    },
+  };
+}
+
 async function processExit({
   ticketId,
   plateNumber,
@@ -84,16 +163,26 @@ async function processExit({
     throw error;
   }
 
+  // Parking time stops when the car joins the exit queue, not when the
+  // operator gets around to taking payment.
+  const billingEnd = transaction.parkingEndTimestamp
+    ? new Date(transaction.parkingEndTimestamp)
+    : exitTime;
   const durationMilliseconds =
-    exitTime.getTime() - new Date(transaction.entryTimestamp).getTime();
+    billingEnd.getTime() - new Date(transaction.entryTimestamp).getTime();
   if (!Number.isFinite(durationMilliseconds) || durationMilliseconds < 0) {
-    throw new RangeError("Exit timestamp cannot be before entry timestamp");
+    throw serviceError(
+      "Exit timestamp cannot be before entry timestamp",
+      "INVALID_REQUEST",
+      400,
+    );
   }
-  const durationSeconds = durationMilliseconds / 1000;
+  const durationHours = simulatedHoursBetween(transaction.entryTimestamp, billingEnd);
+  const durationSeconds = durationHours * 3600;
   const fareConfig = await getFareConfig(transaction.vehicleType);
   const fareDetails = calculateFareDetails(
     transaction.entryTimestamp,
-    exitTime,
+    billingEnd,
     transaction.vehicleType,
     {
       lostTicket,
@@ -111,9 +200,9 @@ async function processExit({
         status: "completed",
         exitGateId: gateId,
         exitOperatorId: operatorId,
-        exitTimestamp: exitTime,
+        exitTimestamp: billingEnd,
         durationSeconds,
-        fare: fareDetails.total,
+        fare: roundMoney(fareDetails.total),
         penaltyApplied: lostTicket,
       },
     },
@@ -129,7 +218,16 @@ async function processExit({
 
   try {
     await Spot.findOneAndUpdate(
-      { _id: settledTransaction.spotId, status: "reserved" },
+      {
+        _id: settledTransaction.spotId,
+        status: "reserved",
+        // Only free the spot if it still belongs to this transaction (or is a
+        // legacy row with no owner recorded). A newly parked car is untouched.
+        $or: [
+          { currentTransactionId: settledTransaction._id },
+          { currentTransactionId: null },
+        ],
+      },
       { $set: { status: "free", currentTransactionId: null } },
       { returnDocument: "after" },
     );
@@ -137,7 +235,7 @@ async function processExit({
     // Do not report a completed exit while its spot remains unavailable. The
     // compare-and-set prevents this compensation from undoing another exit.
     await Transaction.findOneAndUpdate(
-      { _id: settledTransaction._id, status: "completed", exitTimestamp: exitTime },
+      { _id: settledTransaction._id, status: "completed", exitTimestamp: billingEnd },
       {
         $set: { status: "active", penaltyApplied: false },
         $unset: {
@@ -165,6 +263,7 @@ async function processExit({
       gateId,
       fare: fareDetails.total,
       durationSeconds,
+      durationHours,
       penaltyApplied: lostTicket,
     },
   });
@@ -175,12 +274,13 @@ async function processExit({
     spotId: String(settledTransaction.spotId),
     plateNumber: settledTransaction.plateNumber,
     entryTimestamp: settledTransaction.entryTimestamp,
-    exitTimestamp: exitTime,
+    exitTimestamp: billingEnd,
     durationSeconds,
-    fare: fareDetails.total,
+    durationHours,
+    fare: roundMoney(fareDetails.total),
     penaltyApplied: lostTicket,
     breakdown: {
-      baseFare: fareDetails.baseFare,
+      baseFare: roundMoney(fareDetails.baseFare),
       ...(fareDetails.lostTicketPenalty
         ? { lostTicketPenalty: fareDetails.lostTicketPenalty }
         : {}),
@@ -191,4 +291,4 @@ async function processExit({
   };
 }
 
-module.exports = { lookupByTicket, searchByPlate, processExit };
+module.exports = { lookupByTicket, searchByPlate, quoteExit, processExit };

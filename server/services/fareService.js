@@ -1,5 +1,7 @@
 "use strict";
 
+const { realMillisecondsPerSimulatedHour } = require("../utils/simulatedTime");
+
 const DEFAULT_FARE_CONFIG = {
   "4W": {
     firstHourFree: true,
@@ -34,7 +36,9 @@ function getDurationHours(entryTimestamp, exitTimestamp) {
     throw new RangeError("Exit timestamp cannot be before entry timestamp");
   }
 
-  return (exit - entry) / (60 * 60 * 1000);
+  // The demo clock is compressed: five real seconds equal one billed hour by
+  // default. All tier thresholds below are therefore read as simulated hours.
+  return (exit - entry) / realMillisecondsPerSimulatedHour();
 }
 
 function validateFareConfig(config) {

@@ -1,13 +1,20 @@
 import { io } from "socket.io-client";
 import { getToken as getStoredToken } from "../api/session.js";
 
-const toSpots = (payload) =>
-  (Array.isArray(payload) ? payload : (payload?.spots ?? [])).map((spot) => ({
-    id: spot.id ?? spot.spotId,
-    ...(spot.spotNumber ? { spotNumber: spot.spotNumber } : {}),
-    zone: spot.zone,
-    status: spot.status,
-  }));
+const toSnapshot = (payload) => {
+  const source = Array.isArray(payload) ? { spots: payload } : (payload ?? {});
+  return {
+    spots: (source.spots ?? []).map((spot) => ({
+      id: spot.id ?? spot.spotId,
+      ...(spot.spotNumber ? { spotNumber: spot.spotNumber } : {}),
+      zone: spot.zone,
+      status: spot.status,
+      vehicle: spot.vehicle ?? null,
+    })),
+    timeScale: source.timeScale,
+    overstayThresholdHours: source.overstayThresholdHours,
+  };
+};
 
 // Socket.io client for the SAD 4.3.8 events. `connect(handlers)` returns a disconnect function;
 // the mock realtime source exposes the same interface.
@@ -33,7 +40,10 @@ export function createSocketConnection({
     });
     socket.on("disconnect", () => onStatus?.("disconnected"));
     socket.on("connect_error", () => onStatus?.("disconnected"));
-    socket.on("lot:snapshot", (payload) => onSnapshot?.(toSpots(payload)));
+    // The server rejects an expired/invalid token during `identify`; surface it
+    // instead of continuing to show a misleading "Live updates on" label.
+    socket.on("identify:error", () => onStatus?.("signed-out"));
+    socket.on("lot:snapshot", (payload) => onSnapshot?.(toSnapshot(payload)));
     socket.on("spot:update", (payload) =>
       onUpdate?.({ spotId: payload.spotId ?? payload.id, status: payload.status }),
     );

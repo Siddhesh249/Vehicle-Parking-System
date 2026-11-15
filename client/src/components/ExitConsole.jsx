@@ -1,8 +1,9 @@
 import { useState } from "react";
+import BotExitPanel from "./BotExitPanel.jsx";
 import {
   describeBreakdown,
   errorMessage,
-  formatDuration,
+  formatHours,
   formatMoney,
   formatTimestamp,
   normalizePlate,
@@ -122,116 +123,132 @@ export default function ExitConsole({ gateId, api }) {
     : "";
 
   return (
-    <section className="console-panel">
-      <h3>Process exit</h3>
-
-      <div className="exit-lookups">
-        <form className="console-form" onSubmit={lookupByTicket} noValidate>
-          <label>
-            Ticket ID
-            <input
-              type="text"
-              value={ticketInput}
-              onChange={(e) => setTicketInput(e.target.value)}
-              autoComplete="off"
-            />
-          </label>
-          <button type="submit" className="primary-button" disabled={busy}>
-            Look up ticket
-          </button>
-        </form>
-
-        <form className="console-form" onSubmit={searchByPlate} noValidate>
-          <label>
-            Plate number
-            <input
-              type="text"
-              value={plateInput}
-              onChange={(e) => setPlateInput(e.target.value)}
-              autoComplete="off"
-              maxLength={15}
-            />
-          </label>
-          <button type="submit" className="secondary-button" disabled={busy}>
-            Search by plate
-          </button>
-          <p className="field-hint">
-            For drivers without a ticket. A penalty fee is added to the fare.
-          </p>
-        </form>
-      </div>
-
-      {error && (
-        <p role="alert" className="console-error">
-          {error}
-        </p>
+    <>
+      {typeof api.getExitQueue === "function" && (
+        <BotExitPanel api={api} gateId={gateId} />
       )}
 
-      {matches.length > 0 && (
-        <fieldset className="match-list">
-          <legend>Vehicle found</legend>
-          {matches.map((record, index) => (
-            <label key={record.ticketId ?? record.plateNumber} className="match-row">
-              <input
-                type="radio"
-                name="exit-vehicle"
-                checked={selected === index}
-                onChange={() => setSelected(index)}
-              />
-              {record.ticketId && <span className="mono">{record.ticketId}</span>}
-              <span className="mono">{record.plateNumber}</span>
-              <span>{record.vehicleType}</span>
-              {record.entryTimestamp && (
-                <span>{formatTimestamp(record.entryTimestamp)}</span>
-              )}
-            </label>
-          ))}
-          <div className="match-actions">
-            <button
-              type="button"
-              className="primary-button"
-              onClick={confirmExit}
-              disabled={busy}
-            >
-              Confirm exit
-            </button>
-            <button
-              type="button"
-              className="secondary-button"
-              onClick={notifyOverstay}
-              disabled={busy || typeof api.notifyOverstay !== "function"}
-            >
-              Notify admin of overstay
-            </button>
+      <section className="console-panel">
+        <div className="panel-heading">
+          <div>
+            <p className="eyebrow">MANUAL LOOKUP</p>
+            <h3>Walk-in or lost-ticket exit</h3>
           </div>
-        </fieldset>
-      )}
-
-      {notice && (
-        <p role="status" className="field-hint">
-          {notice}
-        </p>
-      )}
-
-      {receipt && (
-        <div className="ticket-card" role="status">
-          <h4>Exit complete</h4>
-          <dl className="detail-list">
-            <dt>Fare</dt>
-            <dd>{fareText}</dd>
-            <dt>Duration</dt>
-            <dd>{formatDuration(receipt.durationSeconds)}</dd>
-            {receipt.penaltyApplied && (
-              <>
-                <dt>Penalty</dt>
-                <dd>Lost-ticket penalty applied</dd>
-              </>
-            )}
-            <dt>Receipt</dt>
-            <dd className="mono">{receipt.receiptId}</dd>
-          </dl>
+          <span className="gate-badge gate-badge--small">{gateId}</span>
         </div>
-      )}
-    </section>
+
+        <div className="exit-lookups">
+          <form className="console-form" onSubmit={lookupByTicket} noValidate>
+            <label>
+              Ticket ID
+              <input
+                type="text"
+                value={ticketInput}
+                onChange={(e) => setTicketInput(e.target.value)}
+                autoComplete="off"
+              />
+            </label>
+            <button type="submit" className="primary-button" disabled={busy}>
+              Look up ticket
+            </button>
+          </form>
+
+          <form className="console-form" onSubmit={searchByPlate} noValidate>
+            <label>
+              Plate number
+              <input
+                type="text"
+                value={plateInput}
+                onChange={(e) => setPlateInput(e.target.value)}
+                autoComplete="off"
+                maxLength={15}
+              />
+            </label>
+            <button type="submit" className="secondary-button" disabled={busy}>
+              Search by plate
+            </button>
+            <p className="field-hint">
+              For drivers without a ticket. A penalty fee is added to the fare.
+            </p>
+          </form>
+        </div>
+
+        {error && (
+          <p role="alert" className="console-error">
+            {error}
+          </p>
+        )}
+
+        {matches.length > 0 && (
+          <fieldset className="match-list">
+            <legend>Vehicle found</legend>
+            {matches.map((record, index) => (
+              <label key={record.ticketId ?? record.plateNumber} className="match-row">
+                <input
+                  type="radio"
+                  name="exit-vehicle"
+                  checked={selected === index}
+                  onChange={() => setSelected(index)}
+                />
+                {record.ticketId && <span className="mono">{record.ticketId}</span>}
+                <span className="mono">{record.plateNumber}</span>
+                <span>{record.vehicleType}</span>
+                {record.entryTimestamp && (
+                  <span>{formatTimestamp(record.entryTimestamp)}</span>
+                )}
+              </label>
+            ))}
+            <div className="match-actions">
+              <button
+                type="button"
+                className="primary-button"
+                onClick={confirmExit}
+                disabled={busy}
+              >
+                Confirm exit
+              </button>
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={notifyOverstay}
+                disabled={busy || typeof api.notifyOverstay !== "function"}
+              >
+                Notify admin of overstay
+              </button>
+            </div>
+          </fieldset>
+        )}
+
+        {notice && (
+          <p role="status" className="field-hint">
+            {notice}
+          </p>
+        )}
+
+        {receipt && (
+          <div className="ticket-card" role="status">
+            <h4>Exit complete</h4>
+            <dl className="detail-list">
+              <dt>Fare</dt>
+              <dd>{fareText}</dd>
+              <dt>Duration</dt>
+              <dd>
+                {formatHours(
+                  receipt.durationHours ?? (receipt.durationSeconds ?? 0) / 3600,
+                )}
+              </dd>
+              {receipt.penaltyApplied && (
+                <>
+                  <dt>Penalty</dt>
+                  <dd>Lost-ticket penalty applied</dd>
+                </>
+              )}
+              <dt>Receipt</dt>
+              <dd className="mono">{receipt.receiptId}</dd>
+            </dl>
+          </div>
+        )}
+      </section>
+    </>
   );
 }
