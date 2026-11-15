@@ -116,7 +116,7 @@ describe("Fare/Exit Service", () => {
       {
         _id: "spot-1",
         status: "reserved",
-        $or: [{ currentTransactionId: "tx-1" }, { currentTransactionId: null }],
+        currentTransactionId: "tx-1",
       },
       { $set: { status: "free", currentTransactionId: null } },
       { returnDocument: "after" },

@@ -117,6 +117,7 @@ describe("Sprint 3 entry/exit API routes", () => {
       gateId: "Exit-2",
       operatorId: "operator-2",
       exitTimestamp: expect.any(Date),
+      useSimulationOverride: false,
     });
     expect(response.body.receiptId).toBe("receipt-1");
   });

@@ -400,3 +400,31 @@ describe("calculateFare — custom configuration validation", () => {
     );
   });
 });
+
+describe("free interval and first tier", () => {
+  const H = 3600 * 1000; // this suite runs on the 3600-seconds-per-hour clock
+  const at = (hours) => new Date(hours * H);
+  const config = (overrides) => ({
+    "2W": {
+      firstHourFree: true,
+      tiers: [{ afterHours: 1, ratePerHour: 10 }],
+      lostTicketPenalty: 0,
+      overstayPenalty: 0,
+      ...overrides,
+    },
+  });
+
+  test("turning the free first hour off bills from minute zero", () => {
+    const noFree = config({ firstHourFree: false });
+    expect(calculateFare(at(0), at(0.5), "2W", {}, noFree)).toBeCloseTo(5, 6);
+    expect(calculateFare(at(0), at(1), "2W", {}, noFree)).toBeCloseTo(10, 6);
+    expect(calculateFare(at(0), at(2), "2W", {}, noFree)).toBeCloseTo(20, 6);
+  });
+
+  test("a first tier starting after the free hour also covers the gap", () => {
+    const late = config({ tiers: [{ afterHours: 3, ratePerHour: 10 }] });
+    expect(calculateFare(at(0), at(1), "2W", {}, late)).toBe(0);
+    expect(calculateFare(at(0), at(2), "2W", {}, late)).toBeCloseTo(10, 6);
+    expect(calculateFare(at(0), at(4), "2W", {}, late)).toBeCloseTo(30, 6);
+  });
+});

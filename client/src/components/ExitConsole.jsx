@@ -21,14 +21,27 @@ export default function ExitConsole({ gateId, api }) {
   const [selected, setSelected] = useState(0);
   const [receipt, setReceipt] = useState(null);
   const [notice, setNotice] = useState("");
+  const [quote, setQuote] = useState(null);
 
   function startSearch() {
     setError("");
     setNotice("");
     setReceipt(null);
+    setQuote(null);
     setMatches([]);
     setSelected(0);
     setBusy(true);
+  }
+
+  // Preview the fare before the operator confirms. A failed preview never
+  // blocks the exit itself; the server computes the final amount on confirm.
+  async function previewFare(request) {
+    if (typeof api.quoteExit !== "function") return;
+    try {
+      setQuote(await api.quoteExit(request));
+    } catch {
+      setQuote(null);
+    }
   }
 
   async function lookupByTicket(event) {
@@ -45,6 +58,7 @@ export default function ExitConsole({ gateId, api }) {
       const record = await api.lookupTicket(ticketId);
       setMode("ticket");
       setMatches([{ ...record, ticketId: record.ticketId ?? ticketId }]);
+      await previewFare({ ticketId: record.ticketId ?? ticketId });
     } catch (err) {
       setError(errorMessage(err, "Could not look up that ticket."));
     } finally {
@@ -67,6 +81,7 @@ export default function ExitConsole({ gateId, api }) {
       if (!records.length) throw new Error("Vehicle not found");
       setMode("plate");
       setMatches(records);
+      await previewFare({ plateNumber: records[0].plateNumber });
     } catch (err) {
       setError(errorMessage(err, "Could not search for that plate."));
     } finally {
@@ -86,6 +101,7 @@ export default function ExitConsole({ gateId, api }) {
           : { plateNumber: record.plateNumber, gateId };
       const result = await api.processExit(request);
       setReceipt(result);
+      setQuote(null);
       setMatches([]);
       setTicketInput("");
       setPlateInput("");
@@ -188,7 +204,15 @@ export default function ExitConsole({ gateId, api }) {
                   type="radio"
                   name="exit-vehicle"
                   checked={selected === index}
-                  onChange={() => setSelected(index)}
+                  onChange={() => {
+                    setSelected(index);
+                    setQuote(null);
+                    void previewFare(
+                      mode === "ticket"
+                        ? { ticketId: record.ticketId }
+                        : { plateNumber: record.plateNumber },
+                    );
+                  }}
                 />
                 {record.ticketId && <span className="mono">{record.ticketId}</span>}
                 <span className="mono">{record.plateNumber}</span>
@@ -198,6 +222,30 @@ export default function ExitConsole({ gateId, api }) {
                 )}
               </label>
             ))}
+            {quote && (
+              <dl className="detail-list" aria-label="Fare preview">
+                <dt>Amount due now</dt>
+                <dd className="fare-due">
+                  {formatMoney(quote.fare)}
+                  {describeBreakdown(quote.breakdown)
+                    ? ` (${describeBreakdown(quote.breakdown)})`
+                    : ""}
+                </dd>
+                <dt>Parked</dt>
+                <dd>{formatHours(quote.durationHours ?? 0)}</dd>
+                {quote.lostTicket && (
+                  <>
+                    <dt>Penalty</dt>
+                    <dd>Lost-ticket penalty included</dd>
+                  </>
+                )}
+              </dl>
+            )}
+            {quote && (
+              <p className="field-hint">
+                The final fare is calculated when you confirm the exit.
+              </p>
+            )}
             <div className="match-actions">
               <button
                 type="button"

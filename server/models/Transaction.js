@@ -1,6 +1,7 @@
 "use strict";
 
 const mongoose = require("mongoose");
+const { ADMIN_EXIT_GATE } = require("../utils/gates");
 
 const GATE_IDS = ["Entry-1", "Entry-2", "Exit-1", "Exit-2"];
 
@@ -46,7 +47,7 @@ const transactionSchema = new mongoose.Schema(
     },
     exitGateId: {
       type: String,
-      enum: GATE_IDS.filter((gate) => gate.startsWith("Exit")),
+      enum: [...GATE_IDS.filter((gate) => gate.startsWith("Exit")), ADMIN_EXIT_GATE],
     },
     exitOperatorId: {
       type: mongoose.Schema.Types.ObjectId,

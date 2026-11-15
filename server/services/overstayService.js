@@ -7,6 +7,7 @@ const { getFareConfig } = require("./fareConfigService");
 const { writeAuditEntry } = require("./auditService");
 const { getOverstayThresholdHours } = require("./overstayConfigService");
 const { roundMoney } = require("../utils/money");
+const { ADMIN_EXIT_GATE } = require("../utils/gates");
 const {
   realMillisecondsForSimulatedHours,
   simulatedHoursBetween,
@@ -114,9 +115,31 @@ async function scanOverstays({ now = new Date(), thresholdHours } = {}) {
   return newlyFlagged;
 }
 
+function notOverstayedError() {
+  return serviceError(
+    "This vehicle has not exceeded the overstay threshold",
+    "NOT_OVERSTAYED",
+    409,
+  );
+}
+
+/**
+ * A vehicle counts as overstayed when it was already flagged (by the scanner or
+ * a previous notification) or its parked time has reached the configured
+ * threshold at `until`.
+ */
+async function assertOverstayed(transaction, until) {
+  if (transaction.isOverstay) return;
+  const thresholdHours = await getOverstayThresholdHours();
+  if (simulatedHoursBetween(transaction.entryTimestamp, until) < thresholdHours) {
+    throw notOverstayedError();
+  }
+}
+
 /** Flag an overstaying vehicle and record the gate's notification (VPS-F-040, VPS-F-041). */
 async function notifyOverstay({ vehicleId, gateId, operator, now = new Date() }) {
   const transaction = await findActiveTransaction(vehicleId);
+  await assertOverstayed(transaction, now);
 
   await Transaction.updateOne(
     { _id: transaction._id, status: "active" },
@@ -155,16 +178,26 @@ async function notifyOverstay({ vehicleId, gateId, operator, now = new Date() })
  * (VPS-F-042, VPS-F-043). Mirrors processExit's compare-and-set so a force
  * release and a gate exit racing each other settle the vehicle only once.
  */
-async function forceRelease({ vehicleId, admin, now = new Date() }) {
+async function forceRelease({
+  vehicleId,
+  admin,
+  now = new Date(),
+  useSimulationOverride = false,
+}) {
   const transaction = await findActiveTransaction(vehicleId);
 
   // If the car already left its spot for the exit queue, bill to that moment.
   const billingEnd = transaction.parkingEndTimestamp
     ? new Date(transaction.parkingEndTimestamp)
     : now;
+  // Only an overstayed vehicle may be force-released (VPS-F-042), so the
+  // penalty can never be charged to a car that is still within its time.
+  await assertOverstayed(transaction, billingEnd);
   const durationSeconds = simulatedSecondsBetween(transaction.entryTimestamp, billingEnd);
   const durationHours = durationSeconds / 3600;
-  const fareConfig = await getFareConfig(transaction.vehicleType);
+  const fareConfig = await getFareConfig(transaction.vehicleType, {
+    useSimulationOverride,
+  });
   const fareDetails = calculateFareDetails(
     transaction.entryTimestamp,
     billingEnd,
@@ -178,6 +211,8 @@ async function forceRelease({ vehicleId, admin, now = new Date() }) {
     {
       $set: {
         status: "completed",
+        exitGateId: ADMIN_EXIT_GATE,
+        exitOperatorId: admin.userId,
         exitTimestamp: billingEnd,
         durationSeconds,
         fare: roundMoney(fareDetails.total),
@@ -196,7 +231,7 @@ async function forceRelease({ vehicleId, admin, now = new Date() }) {
       {
         _id: settled.spotId,
         status: "reserved",
-        $or: [{ currentTransactionId: settled._id }, { currentTransactionId: null }],
+        currentTransactionId: settled._id,
       },
       { $set: { status: "free", currentTransactionId: null } },
       { returnDocument: "after" },
@@ -210,7 +245,13 @@ async function forceRelease({ vehicleId, admin, now = new Date() }) {
       },
       {
         $set: { status: "active", penaltyApplied: false },
-        $unset: { exitTimestamp: 1, durationSeconds: 1, fare: 1 },
+        $unset: {
+          exitGateId: 1,
+          exitOperatorId: 1,
+          exitTimestamp: 1,
+          durationSeconds: 1,
+          fare: 1,
+        },
       },
       { returnDocument: "after" },
     );

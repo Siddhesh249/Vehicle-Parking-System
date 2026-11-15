@@ -62,10 +62,16 @@ export default function AdminConsole({ api, realtime }) {
     [api, plateFilter],
   );
   const fetchAudit = useCallback(() => api.getAuditLog(), [api]);
+  // `fetchedAt` is taken before the request so a live alert that arrives while
+  // the request is in flight is never mistaken for one the server already knew.
   const fetchOverstays = useCallback(async () => {
-    if (typeof api.getOverstays !== "function") return [];
+    const fetchedAt = Date.now();
+    if (typeof api.getOverstays !== "function") return { rows: [], fetchedAt };
     const rows = await api.getOverstays();
-    return Array.isArray(rows) ? rows : (rows?.overstays ?? []);
+    return {
+      rows: Array.isArray(rows) ? rows : (rows?.overstays ?? []),
+      fetchedAt,
+    };
   }, [api]);
 
   const occupancy = usePanel(fetchOccupancy);
@@ -97,11 +103,19 @@ export default function AdminConsole({ api, realtime }) {
 
   // Overstays appear automatically after the configured threshold even when
   // no operator pressed "notify", so load and periodically refresh the feed.
+  // The server list is authoritative: a live alert is dropped once a later
+  // refresh no longer lists its vehicle (it exited or was released elsewhere).
   const alerts = useMemo(() => {
-    const autoAlerts = overstays.status === "ready" ? overstays.data : [];
+    const server = overstays.status === "ready" ? overstays.data : null;
+    const autoAlerts = server?.rows ?? [];
+    const serverIds = new Set(autoAlerts.map(({ vehicleId }) => vehicleId));
+    const liveAlerts = manualAlerts.filter(
+      (alert) =>
+        !server || serverIds.has(alert.vehicleId) || alert.receivedAt >= server.fetchedAt,
+    );
     const seen = new Set(releasedAlertIds);
     const merged = [];
-    for (const alert of [...manualAlerts, ...autoAlerts]) {
+    for (const alert of [...liveAlerts, ...autoAlerts]) {
       if (!alert?.vehicleId || seen.has(alert.vehicleId)) continue;
       seen.add(alert.vehicleId);
       merged.push(alert);
@@ -131,7 +145,7 @@ export default function AdminConsole({ api, realtime }) {
         setManualAlerts((current) =>
           current.some(({ vehicleId }) => vehicleId === alert.vehicleId)
             ? current
-            : [alert, ...current],
+            : [{ ...alert, receivedAt: Date.now() }, ...current],
         );
       },
     });

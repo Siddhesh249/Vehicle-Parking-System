@@ -114,6 +114,52 @@ describe("ExitConsole", () => {
     expect(await screen.findByText(/lost ticket|penalty applied/i)).toBeInTheDocument();
   });
 
+  test("shows the fare preview before the exit is confirmed", async () => {
+    const user = userEvent.setup();
+    const api = {
+      lookupTicket: jest.fn().mockResolvedValue({
+        ticketId: "TKT-Q",
+        plateNumber: "KA05QQ1234",
+        vehicleType: "4W",
+      }),
+      quoteExit: jest.fn().mockResolvedValue({
+        fare: 40,
+        durationHours: 3,
+        lostTicket: false,
+        breakdown: { baseFare: 40 },
+      }),
+      processExit: jest.fn(),
+    };
+    render(<ExitConsole gateId="Exit-1" api={api} />);
+
+    await user.type(screen.getByLabelText(/ticket id/i), "TKT-Q");
+    await user.click(screen.getByRole("button", { name: /look up ticket/i }));
+
+    expect(await screen.findByText(/amount due now/i)).toBeInTheDocument();
+    expect(screen.getByText(/₹40\.00 \(base fare ₹40\.00\)/)).toBeInTheDocument();
+    expect(api.quoteExit).toHaveBeenCalledWith({ ticketId: "TKT-Q" });
+    expect(api.processExit).not.toHaveBeenCalled();
+  });
+
+  test("still allows the exit when the fare preview fails", async () => {
+    const user = userEvent.setup();
+    const api = {
+      lookupTicket: jest
+        .fn()
+        .mockResolvedValue({ ticketId: "TKT-N", plateNumber: "KA06NN1234" }),
+      quoteExit: jest.fn().mockRejectedValue(new Error("boom")),
+      processExit: jest.fn().mockResolvedValue({ fare: 0, receiptId: "RCP-N" }),
+    };
+    render(<ExitConsole gateId="Exit-1" api={api} />);
+
+    await user.type(screen.getByLabelText(/ticket id/i), "TKT-N");
+    await user.click(screen.getByRole("button", { name: /look up ticket/i }));
+    await screen.findByText("KA06NN1234");
+    expect(screen.queryByText(/amount due now/i)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /confirm exit/i }));
+    expect(await screen.findByText("RCP-N")).toBeInTheDocument();
+  });
+
   test("notifies the admin about an overstay from the found vehicle", async () => {
     const user = userEvent.setup();
     const api = {

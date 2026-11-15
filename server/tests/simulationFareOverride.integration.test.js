@@ -11,7 +11,12 @@ const { app } = require("../app");
 const Spot = require("../models/Spot");
 const Transaction = require("../models/Transaction");
 const { signToken } = require("../utils/jwtUtils");
-const { clearFareOverrides, stopSimulation } = require("../services/simulationService");
+const {
+  clearFareOverrides,
+  stopSimulation,
+  resetSimulationForTests,
+  getEntryQueue,
+} = require("../services/simulationService");
 
 jest.setTimeout(30000);
 
@@ -36,8 +41,7 @@ describe("S4-T2 — simulation fare-tier override", () => {
 
   beforeEach(async () => {
     await mongoose.connection.dropDatabase();
-    clearFareOverrides();
-    stopSimulation();
+    resetSimulationForTests();
     await Spot.create([{ spotNumber: "4W-001", zone: "4W", status: "reserved" }]);
   });
 
@@ -61,17 +65,16 @@ describe("S4-T2 — simulation fare-tier override", () => {
       .expect(400);
   });
 
-  test("applies an override to the next exit without restarting the server", async () => {
-    await request(app)
-      .put("/api/dev/simulate/fare-tiers")
-      .send({
-        vehicleType: "4W",
-        firstHourFree: false,
-        tiers: [{ afterHours: 0, ratePerHour: 7 }],
-        lostTicketPenalty: 0,
-        overstayPenalty: 0,
-      })
-      .expect(200);
+  const overrideBody = {
+    vehicleType: "4W",
+    firstHourFree: false,
+    tiers: [{ afterHours: 0, ratePerHour: 7 }],
+    lostTicketPenalty: 0,
+    overstayPenalty: 0,
+  };
+
+  test("never prices a real (non-simulated) vehicle with the unauthenticated override", async () => {
+    await request(app).put("/api/dev/simulate/fare-tiers").send(overrideBody).expect(200);
 
     const spot = await Spot.findOne({ spotNumber: "4W-001" });
     await Transaction.create({
@@ -92,9 +95,54 @@ describe("S4-T2 — simulation fare-tier override", () => {
       .send({ ticketId: "TKT-OVERRIDE-1" })
       .expect(200);
 
-    expect(receipt.body.fare).toBeCloseTo(14, 1);
-    expect(receipt.body.breakdown.baseFare).toBeCloseTo(14, 1);
-    expect(receipt.body.breakdown).not.toHaveProperty("lostTicketPenalty");
+    // Default 4W tariff: first hour free, then Rs 20/hour -> about Rs 20, not Rs 14.
+    expect(receipt.body.breakdown.baseFare).toBeGreaterThan(19);
+    expect(receipt.body.breakdown.baseFare).toBeLessThan(21);
+  });
+
+  test("applies an override to simulated cars without restarting the server", async () => {
+    await Spot.create([
+      { spotNumber: "2W-001", zone: "2W" },
+      { spotNumber: "4W-002", zone: "4W" },
+    ]);
+    for (const vehicleType of ["2W", "4W"]) {
+      await request(app)
+        .put("/api/dev/simulate/fare-tiers")
+        .send({ ...overrideBody, vehicleType })
+        .expect(200);
+    }
+    await request(app)
+      .post("/api/dev/simulate/start")
+      .send({ ratePerMinute: 600 })
+      .expect(200);
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+
+    const gateId = ["Entry-1", "Entry-2"].find((gate) => getEntryQueue(gate).bot);
+    const bot = getEntryQueue(gateId).bot;
+    const entry = await request(app)
+      .post("/api/dev/simulate/queue/entry/admit")
+      .set(auth("operator", gateId))
+      .send({ botId: bot.botId })
+      .expect(201);
+    stopSimulation();
+    // Force the override to matter: bill a car that has parked for a while.
+    await Transaction.updateOne(
+      { ticketId: entry.body.ticketId },
+      { $set: { entryTimestamp: new Date(Date.now() - 10 * 1000) } },
+    );
+
+    const receipt = await request(app)
+      .post("/api/exit/process")
+      .set(auth("operator", "Exit-1"))
+      .send({ ticketId: entry.body.ticketId })
+      .expect(200);
+
+    // Flat Rs 7/hour from the first minute, whatever the car's zone.
+    expect(receipt.body.breakdown.baseFare).toBeCloseTo(
+      receipt.body.durationHours * 7,
+      1,
+    );
+    expect(receipt.body.breakdown.baseFare).toBeGreaterThan(0);
   });
 
   test("exposes the current generator state for the console", async () => {

@@ -113,4 +113,28 @@ describe("S3-T4 — admin panels refresh from real API responses", () => {
     );
     expect(screen.getByText(/no overstay alerts/i)).toBeInTheDocument();
   });
+
+  test("drops a live alert once a later refresh no longer lists the vehicle", async () => {
+    const { api, realtime, source } = setup();
+    api.getOverstays = jest.fn().mockResolvedValueOnce([]).mockResolvedValue([]);
+    render(<AdminConsole api={api} realtime={realtime} />);
+    await screen.findByText("25%");
+
+    act(() =>
+      source.handlers.onOverstay({
+        vehicleId: "vehicle-gone",
+        ticketId: "TKT-GONE",
+        plateNumber: "KA07GO0001",
+        gateId: "Exit-1",
+        duration: 5400,
+      }),
+    );
+    expect(await screen.findByText("KA07GO0001")).toBeInTheDocument();
+
+    // The vehicle left through a normal exit: a spot update triggers a refresh
+    // and the server no longer reports it as overstayed.
+    act(() => source.handlers.onUpdate({ spotId: "4W-01", status: "free" }));
+    await waitFor(() => expect(screen.queryByText("KA07GO0001")).not.toBeInTheDocument());
+    expect(screen.getByText(/no overstay alerts/i)).toBeInTheDocument();
+  });
 });

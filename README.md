@@ -456,7 +456,4 @@ code-based: Supertest integration tests run inside Jest, and no separate API cli
 collection is part of the repository or CI.
 
 Docs in [`DOCS/`](DOCS): requirement specification (SRS), architecture and design (SAD), test plan
-(STP), sprint plan, required software tools, git workflow, commit strategy, the evaluator and
-student handouts, and the final [test execution summary](DOCS/Test_Execution_Summary.md). The
-editable ODT sources and the PDF build script live in
-[DOCS/editable formats](DOCS/editable%20formats/README.md).
+(STP), and the final [test execution summary](DOCS/Test_Execution_Summary.md).
