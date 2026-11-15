@@ -1,6 +1,6 @@
 /**
- * Final-touches audit regressions: billing gap, atomic spot ownership, plate
- * normalisation, overstay validation, fare quote and restart recovery.
+ * Allocation, exit and overstay integrity: billing gap, atomic spot ownership,
+ * plate normalisation, overstay validation, fare preview and restart recovery.
  */
 "use strict";
 
@@ -46,7 +46,7 @@ const park = (plateNumber, vehicleType = "4W") =>
     .set(entryAuth)
     .send({ plateNumber, vehicleType });
 
-describe("final-touches audit regressions", () => {
+describe("allocation, exit and overstay integrity", () => {
   let mongo;
 
   beforeAll(async () => {
