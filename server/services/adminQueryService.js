@@ -2,8 +2,10 @@
 
 const Transaction = require("../models/Transaction");
 const AuditLog = require("../models/AuditLog");
+const { ADMIN_EXIT_GATE } = require("../utils/gates");
+const { normalizePlate } = require("../utils/plate");
 
-const GATE_IDS = ["Entry-1", "Entry-2", "Exit-1", "Exit-2"];
+const GATE_IDS = ["Entry-1", "Entry-2", "Exit-1", "Exit-2", ADMIN_EXIT_GATE];
 const MAX_RESULTS = 500;
 const OBJECT_ID_PATTERN = /^[0-9a-f]{24}$/i;
 
@@ -51,7 +53,7 @@ async function listTransactions({ plate, from, to, gate } = {}) {
   if (plateNumber) {
     // Admin search is intentionally partial (case-insensitive) but the input is
     // escaped so a search term can never become a Mongo query operator.
-    filter.plateNumber = { $regex: escapeRegExp(plateNumber.toUpperCase()) };
+    filter.plateNumber = { $regex: escapeRegExp(normalizePlate(plateNumber)) };
   }
 
   const gateId = optionalString(gate, "gate");

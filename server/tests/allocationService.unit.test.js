@@ -204,8 +204,10 @@ describe("allocateSpot", () => {
       code: "ALREADY_PARKED",
       statusCode: 409,
     });
+    const claimedOwner = Spot.findOneAndUpdate.mock.calls[0][1].$set.currentTransactionId;
+    expect(claimedOwner).toBeDefined();
     expect(Spot.findOneAndUpdate).toHaveBeenLastCalledWith(
-      { _id: "spot-4", status: "reserved" },
+      { _id: "spot-4", status: "reserved", currentTransactionId: claimedOwner },
       { $set: { status: "free", currentTransactionId: null } },
       { returnDocument: "after" },
     );

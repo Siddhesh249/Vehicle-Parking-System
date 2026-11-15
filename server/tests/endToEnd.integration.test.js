@@ -119,6 +119,11 @@ describe("S3-T5 — integrated parking API workflows", () => {
       .set(auth(entryToken))
       .send({ plateNumber: "KA04GH3456", vehicleType: "4W" })
       .expect(201);
+    // Park it past the default 24 simulated-hour threshold (5 real seconds/hour).
+    await Transaction.updateOne(
+      { ticketId: entry.body.ticketId },
+      { $set: { entryTimestamp: new Date(Date.now() - 150 * 1000) } },
+    );
     await request(app)
       .post("/api/overstay/notify")
       .set(auth(exitToken))

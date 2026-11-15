@@ -47,6 +47,7 @@ const {
   inspectExitBot,
   findBotExitTime,
   markBotSettled,
+  isSimulatedVehicle,
   setPromotionListener,
 } = require("./services/simulationService");
 const { getDatabaseSnapshot } = require("./services/databaseService");
@@ -235,6 +236,16 @@ function requireGate(gatePrefix) {
 }
 
 function sendServiceError(res, error) {
+  // Bad client input that only the schema layer notices (over-long values,
+  // malformed ids) is a 400, not an unexpected server fault.
+  if (error?.name === "ValidationError" || error?.name === "CastError") {
+    return res.status(400).json({
+      error: {
+        code: "INVALID_REQUEST",
+        message: "The request contains invalid or out-of-range values",
+      },
+    });
+  }
   const status = Number.isInteger(error.statusCode) ? error.statusCode : 500;
   const code = error.code || "INTERNAL_ERROR";
   const message = status === 500 ? "An unexpected server error occurred" : error.message;
@@ -406,6 +417,7 @@ app.post(
         ticketId: bot.hasTicket ? bot.ticketId : undefined,
         plateNumber: bot.plateNumber,
         exitTimestamp: new Date(bot.parkingEndTimestamp),
+        useSimulationOverride: true,
       });
       return res.status(200).json({ ...bot, quote });
     } catch (error) {
@@ -428,6 +440,7 @@ app.post(
         gateId: req.user.gateId,
         operatorId: req.user.userId,
         exitTimestamp: new Date(bot.parkingEndTimestamp),
+        useSimulationOverride: true,
       });
       markBotSettled({
         ticketId: receipt.ticketId,
@@ -517,6 +530,23 @@ app.get("/api/exit/search", authenticateToken, requireGate("Exit-"), async (req,
   }
 });
 
+// Read-only fare preview so the operator sees the amount before confirming.
+app.get("/api/exit/quote", authenticateToken, requireGate("Exit-"), async (req, res) => {
+  try {
+    const { ticketId, plateNumber } = req.query;
+    const botExitTime = findBotExitTime({ ticketId, plateNumber });
+    const quote = await quoteExit({
+      ticketId,
+      plateNumber,
+      exitTimestamp: botExitTime ?? new Date(),
+      useSimulationOverride: isSimulatedVehicle({ ticketId, plateNumber }),
+    });
+    return res.status(200).json(quote);
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
+
 app.post(
   "/api/exit/process",
   authenticateToken,
@@ -533,6 +563,10 @@ app.post(
         gateId: req.user.gateId,
         operatorId: req.user.userId,
         exitTimestamp: botExitTime ?? new Date(),
+        useSimulationOverride: isSimulatedVehicle({
+          ticketId: req.body?.ticketId,
+          plateNumber: req.body?.plateNumber,
+        }),
       });
       // If this exit belonged to a simulated car, retire it from the bot queue.
       markBotSettled({
@@ -753,6 +787,10 @@ app.post(
         vehicleId: req.params.id,
         admin: req.user,
         now: botExitTime ?? new Date(),
+        useSimulationOverride: isSimulatedVehicle({
+          ticketId: req.params.id,
+          transactionId: req.params.id,
+        }),
       });
       markBotSettled({
         ticketId: result.ticketId,

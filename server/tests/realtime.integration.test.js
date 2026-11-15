@@ -7,6 +7,7 @@ const { MongoMemoryServer } = require("mongodb-memory-server");
 const { io: createClient } = require("socket.io-client");
 const { app, server } = require("../app");
 const Spot = require("../models/Spot");
+const Transaction = require("../models/Transaction");
 const { signToken } = require("../utils/jwtUtils");
 
 jest.setTimeout(60000);
@@ -186,6 +187,11 @@ describe("S3-T3 — Socket.io server event contracts (SAD 4.3.8)", () => {
         )
         .send({ plateNumber: "KA02CD5678", vehicleType: "4W" })
         .expect(201);
+      // Park it past the default 24 simulated-hour threshold (5 real seconds/hour).
+      await Transaction.updateOne(
+        { ticketId: entry.body.ticketId },
+        { $set: { entryTimestamp: new Date(Date.now() - 150 * 1000) } },
+      );
 
       const alert = waitFor(admin.socket, "overstay:alert");
       const notice = await request(app)

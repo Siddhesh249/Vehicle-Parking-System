@@ -1,10 +1,12 @@
 "use strict";
 
 const { randomUUID } = require("node:crypto");
+const mongoose = require("mongoose");
 const Spot = require("../models/Spot");
 const Vehicle = require("../models/Vehicle");
 const Transaction = require("../models/Transaction");
 const { writeAuditEntry } = require("./auditService");
+const { normalizePlate, MAX_PLATE_LENGTH } = require("../utils/plate");
 
 const ENTRY_GATES = new Set(["Entry-1", "Entry-2"]);
 const allocationQueues = new Map();
@@ -23,9 +25,9 @@ function alreadyParkedError() {
   return error;
 }
 
-async function releaseClaimedSpot(spotId) {
+async function releaseClaimedSpot(spotId, transactionId) {
   await Spot.findOneAndUpdate(
-    { _id: spotId, status: "reserved" },
+    { _id: spotId, status: "reserved", currentTransactionId: transactionId },
     { $set: { status: "free", currentTransactionId: null } },
     { returnDocument: "after" },
   );
@@ -55,11 +57,22 @@ async function allocateSpotInOrder(
     throw inputError("operatorId is required");
   }
 
-  const normalizedPlate = plateNumber.trim().toUpperCase();
+  const normalizedPlate = normalizePlate(plateNumber);
+  if (!normalizedPlate) {
+    throw inputError("plateNumber is required");
+  }
+  if (normalizedPlate.length > MAX_PLATE_LENGTH) {
+    throw inputError(`plateNumber must be at most ${MAX_PLATE_LENGTH} characters`);
+  }
 
+  // The owning transaction id is written in the same atomic step that claims
+  // the spot. A spot is therefore never "reserved" without an owner, so a late
+  // exit or release of an earlier transaction can never free a spot that this
+  // car has just claimed.
+  const transactionId = new mongoose.Types.ObjectId();
   const spot = await Spot.findOneAndUpdate(
     { zone: vehicleType, status: "free" },
-    { $set: { status: "reserved" } },
+    { $set: { status: "reserved", currentTransactionId: transactionId } },
     { returnDocument: "after", sort: { spotNumber: 1 }, runValidators: true },
   );
 
@@ -89,6 +102,7 @@ async function allocateSpotInOrder(
     );
 
     transaction = await Transaction.create({
+      _id: transactionId,
       ticketId,
       plateNumber: normalizedPlate,
       vehicleType,
@@ -98,19 +112,11 @@ async function allocateSpotInOrder(
       entryTimestamp,
       status: "active",
     });
-
-    // Track the owning transaction on the spot so a later release (normal exit,
-    // early exit-queue handoff, or force release) can never free a spot that
-    // has since been assigned to a different car.
-    await Spot.updateOne(
-      { _id: spot._id, status: "reserved" },
-      { $set: { currentTransactionId: transaction._id } },
-    );
   } catch (error) {
     // Release the claim if creating the vehicle or transaction fails. A unique
     // partial index on active transactions turns a concurrent duplicate entry
     // into this recoverable path.
-    await releaseClaimedSpot(spot._id);
+    await releaseClaimedSpot(spot._id, transactionId);
     if (error && error.code === 11000) throw alreadyParkedError();
     throw error;
   }

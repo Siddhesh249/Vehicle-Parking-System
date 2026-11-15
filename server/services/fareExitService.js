@@ -8,6 +8,7 @@ const { getFareConfig } = require("./fareConfigService");
 const { writeAuditEntry } = require("./auditService");
 const { simulatedHoursBetween } = require("../utils/simulatedTime");
 const { roundMoney } = require("../utils/money");
+const { normalizePlate: canonicalPlate } = require("../utils/plate");
 
 function serviceError(message, code, statusCode) {
   const error = new Error(message);
@@ -17,10 +18,11 @@ function serviceError(message, code, statusCode) {
 }
 
 function normalizePlate(plateNumber) {
-  if (typeof plateNumber !== "string" || !plateNumber.trim()) {
+  const normalized = canonicalPlate(plateNumber);
+  if (!normalized) {
     throw serviceError("plateNumber must be a non-empty string", "INVALID_REQUEST", 400);
   }
-  return plateNumber.trim().toUpperCase();
+  return normalized;
 }
 
 async function lookupByTicket(ticketId) {
@@ -54,14 +56,19 @@ async function searchByPlate(plateNumber) {
  * It applies exactly the same rules as processExit (including the lost-ticket
  * penalty) but never mutates the transaction.
  */
-async function quoteExit({ ticketId, plateNumber, exitTimestamp = new Date() } = {}) {
+async function quoteExit({
+  ticketId,
+  plateNumber,
+  exitTimestamp = new Date(),
+  useSimulationOverride = false,
+} = {}) {
   const exitTime = new Date(exitTimestamp);
   if (!Number.isFinite(exitTime.getTime())) {
     throw serviceError("exitTimestamp must be a valid date", "INVALID_REQUEST", 400);
   }
 
   const lostTicket = !(typeof ticketId === "string" && ticketId.trim());
-  if (lostTicket && !(typeof plateNumber === "string" && plateNumber.trim())) {
+  if (lostTicket && !canonicalPlate(plateNumber)) {
     throw serviceError("A ticketId or plateNumber is required", "INVALID_REQUEST", 400);
   }
 
@@ -93,7 +100,9 @@ async function quoteExit({ ticketId, plateNumber, exitTimestamp = new Date() } =
     );
   }
   const durationHours = simulatedHoursBetween(transaction.entryTimestamp, billingEnd);
-  const fareConfig = await getFareConfig(transaction.vehicleType);
+  const fareConfig = await getFareConfig(transaction.vehicleType, {
+    useSimulationOverride,
+  });
   const fareDetails = calculateFareDetails(
     transaction.entryTimestamp,
     billingEnd,
@@ -132,6 +141,7 @@ async function processExit({
   gateId,
   operatorId,
   exitTimestamp = new Date(),
+  useSimulationOverride = false,
 } = {}) {
   if (!gateId || !operatorId) {
     throw serviceError("gateId and operatorId are required", "INVALID_REQUEST", 400);
@@ -143,7 +153,7 @@ async function processExit({
 
   let transaction;
   const lostTicket = !(typeof ticketId === "string" && ticketId.trim());
-  if (lostTicket && !(typeof plateNumber === "string" && plateNumber.trim())) {
+  if (lostTicket && !canonicalPlate(plateNumber)) {
     throw serviceError("A ticketId or plateNumber is required", "INVALID_REQUEST", 400);
   }
   try {
@@ -179,7 +189,9 @@ async function processExit({
   }
   const durationHours = simulatedHoursBetween(transaction.entryTimestamp, billingEnd);
   const durationSeconds = durationHours * 3600;
-  const fareConfig = await getFareConfig(transaction.vehicleType);
+  const fareConfig = await getFareConfig(transaction.vehicleType, {
+    useSimulationOverride,
+  });
   const fareDetails = calculateFareDetails(
     transaction.entryTimestamp,
     billingEnd,
@@ -221,12 +233,10 @@ async function processExit({
       {
         _id: settledTransaction.spotId,
         status: "reserved",
-        // Only free the spot if it still belongs to this transaction (or is a
-        // legacy row with no owner recorded). A newly parked car is untouched.
-        $or: [
-          { currentTransactionId: settledTransaction._id },
-          { currentTransactionId: null },
-        ],
+        // Only free the spot if it still belongs to this transaction. A newly
+        // parked car (which owns the spot from the moment it claims it) is
+        // never touched.
+        currentTransactionId: settledTransaction._id,
       },
       { $set: { status: "free", currentTransactionId: null } },
       { returnDocument: "after" },

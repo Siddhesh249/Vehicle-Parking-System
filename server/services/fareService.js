@@ -83,7 +83,10 @@ function calculateBaseFare(durationHours, config) {
     const tier = tiers[index];
     const nextThreshold =
       index + 1 < tiers.length ? tiers[index + 1].afterHours : Infinity;
-    const start = Math.max(freeUntil, tier.afterHours);
+    // The first tier also covers any time between the end of the free interval
+    // and its own threshold, so turning "first hour free" off, or starting the
+    // first tier later than the free interval, never leaves unbilled time.
+    const start = index === 0 ? freeUntil : Math.max(freeUntil, tier.afterHours);
     const end = Math.min(durationHours, nextThreshold);
 
     if (end > start) {
@@ -91,8 +94,6 @@ function calculateBaseFare(durationHours, config) {
     }
   }
 
-  // When the first tier begins after the free interval, do not charge the gap.
-  // Configurations used by this project start at hour 1 (or hour 0 when free time is disabled).
   return fare;
 }
 

@@ -5,6 +5,7 @@ const mongoose = require("mongoose");
 const { allocateSpot } = require("./allocationService");
 const Transaction = require("../models/Transaction");
 const Spot = require("../models/Spot");
+const { normalizePlate } = require("../utils/plate");
 const {
   realMillisecondsForSimulatedHours,
   simulatedHoursBetween,
@@ -18,6 +19,9 @@ const EXIT_GATES = ["Exit-1", "Exit-2"];
 const MAX_QUEUE_PER_GATE = 8;
 const MAX_COMPLETED_HISTORY = 120;
 const fareOverrides = new Map();
+// Generated demo plates ("BOT" + 7 hex characters); used to recognise simulated
+// cars that were left behind in the database by an earlier server process.
+const SIMULATED_PLATE_PATTERN = /^BOT[0-9A-F]{7}$/;
 
 /**
  * Developer-only demo traffic. Every generated "bot" behaves like a real
@@ -446,8 +450,7 @@ function inspectExitBot({ botId, gateId } = {}) {
  */
 function findBotExitTime({ ticketId, plateNumber, transactionId } = {}) {
   promoteParkedBots();
-  const normalizedPlate =
-    typeof plateNumber === "string" ? plateNumber.trim().toUpperCase() : null;
+  const normalizedPlate = normalizePlate(plateNumber) || null;
   for (const bot of bots.values()) {
     if (bot.status !== "waiting_exit") continue;
     const matches =
@@ -459,10 +462,28 @@ function findBotExitTime({ ticketId, plateNumber, transactionId } = {}) {
   return null;
 }
 
+/**
+ * True when the identifiers belong to a live simulated car. Only those cars may
+ * be priced with the developer fare override.
+ */
+function isSimulatedVehicle({ ticketId, plateNumber, transactionId } = {}) {
+  const normalizedPlate = normalizePlate(plateNumber) || null;
+  for (const bot of bots.values()) {
+    if (bot.status !== "waiting_exit" && bot.status !== "parked") continue;
+    if (
+      (ticketId && bot.ticketId === ticketId) ||
+      (transactionId && bot.transactionId === transactionId) ||
+      (normalizedPlate && bot.plateNumber === normalizedPlate)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /** Called after an exit is settled (by an operator or an admin force-release). */
 function markBotSettled({ ticketId, plateNumber, fare } = {}) {
-  const normalizedPlate =
-    typeof plateNumber === "string" ? plateNumber.trim().toUpperCase() : null;
+  const normalizedPlate = normalizePlate(plateNumber) || null;
   for (const bot of bots.values()) {
     if (bot.status !== "waiting_exit" && bot.status !== "parked") continue;
     const matches =
@@ -559,40 +580,66 @@ function resetSimulationForTests() {
 }
 
 /**
- * Adopt the cars that the seed left parked, so a fresh demo is alive before the
- * traffic generator is started. Each one heads to an exit gate within 5–20s.
+ * Hand cars that no live bot owns back to the demo fleet.
+ *
+ * - Cars the seed left parked (`TKT-DEMO-1…`) are adopted so a fresh demo is
+ *   alive before the traffic generator starts; each heads to an exit gate
+ *   within 5–20s.
+ * - Simulated cars orphaned by a server restart (the fleet only lives in
+ *   memory) are recovered too: parked ones head to an exit shortly, and ones
+ *   that were already waiting at an exit rejoin an exit queue with their
+ *   original billing end, so they are never stranded as ghost transactions.
  */
 async function adoptDemoParkedCars({ minSeconds = 5, maxSeconds = 20 } = {}) {
   if (mongoose.connection.readyState !== 1) return { adopted: 0 };
   const transactions = await Transaction.find({
     status: "active",
-    parkingEndTimestamp: null,
-    ticketId: /^TKT-DEMO-1/,
+    $or: [
+      { parkingEndTimestamp: null, ticketId: /^TKT-DEMO-1/ },
+      { plateNumber: SIMULATED_PLATE_PATTERN },
+    ],
   }).lean();
 
   const now = Date.now();
   let adopted = 0;
   for (const transaction of transactions) {
     const id = `demo-${transaction._id}`;
-    if (bots.has(id)) continue;
-    bots.set(id, {
+    const alreadyTracked = [...bots.values()].some(
+      (bot) => bot.id === id || bot.transactionId === String(transaction._id),
+    );
+    if (alreadyTracked) continue;
+
+    const bot = {
       id,
       plateNumber: transaction.plateNumber,
       vehicleType: transaction.vehicleType,
       entryGateId: transaction.entryGateId,
-      status: "parked",
       arrivedAt: new Date(transaction.entryTimestamp).getTime(),
       intendedStayHours:
         Math.round(
-          simulatedHoursBetween(transaction.entryTimestamp, new Date(now)) * 100,
+          simulatedHoursBetween(
+            transaction.entryTimestamp,
+            transaction.parkingEndTimestamp ?? new Date(now),
+          ) * 100,
         ) / 100,
       lostTicket: false,
       ticketId: transaction.ticketId,
       transactionId: String(transaction._id),
       spotId: String(transaction.spotId),
       entryTimestamp: transaction.entryTimestamp,
-      exitAtMs: now + (minSeconds + Math.random() * (maxSeconds - minSeconds)) * 1000,
-    });
+    };
+    if (transaction.parkingEndTimestamp) {
+      bot.status = "waiting_exit";
+      bot.exitGateId = randomItem(EXIT_GATES);
+      bot.exitQueuedAt = now;
+      bot.parkingEndTimestamp = new Date(transaction.parkingEndTimestamp);
+      bot.exitAtMs = bot.parkingEndTimestamp.getTime();
+    } else {
+      bot.status = "parked";
+      bot.exitAtMs =
+        now + (minSeconds + Math.random() * (maxSeconds - minSeconds)) * 1000;
+    }
+    bots.set(id, bot);
     adopted += 1;
   }
 
@@ -612,6 +659,7 @@ module.exports = {
   inspectExitBot,
   findBotExitTime,
   markBotSettled,
+  isSimulatedVehicle,
   setPromotionListener,
   adoptDemoParkedCars,
   setFareOverride,

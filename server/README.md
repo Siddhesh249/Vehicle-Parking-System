@@ -20,7 +20,7 @@ All models use Mongoose schemas and export the registered model when one already
 | Auth                 | `POST /api/auth/login`                                                                                                                                                                                    |
 | Lot                  | `GET /api/lot/status`                                                                                                                                                                                     |
 | Entry                | `POST /api/entry/vehicles`                                                                                                                                                                                |
-| Exit                 | `GET /api/exit/lookup/:ticketId`, `GET /api/exit/search`, `POST /api/exit/process`                                                                                                                        |
+| Exit                 | `GET /api/exit/lookup/:ticketId`, `GET /api/exit/search`, `GET /api/exit/quote`, `POST /api/exit/process`                                                                                                 |
 | Overstay             | `POST /api/overstay/notify`, `GET /api/admin/overstays`                                                                                                                                                   |
 | Admin analytics      | `GET /api/admin/analytics/occupancy`, `GET /api/admin/analytics/revenue`                                                                                                                                  |
 | Admin records        | `GET /api/admin/transactions`, `GET /api/admin/audit-log`, `GET /api/admin/database`                                                                                                                      |
@@ -47,6 +47,12 @@ released) and billing is frozen. The exit operator scans the bot to get a fare
 quote and then settles it through the ordinary `processExit` path, so
 transactions, audit entries and revenue are real. The `markBotSettled` hook
 also retires a bot when an admin force-releases it.
+
+The fleet only lives in memory, so on startup `adoptDemoParkedCars` hands back
+the cars the seed left parked and any simulated cars (`BOT` plates) orphaned by
+a previous restart. The developer fare override (`PUT /api/dev/simulate/fare-tiers`)
+is unauthenticated demo tooling, so it only prices simulated cars; real vehicles
+always use the stored admin tariff.
 
 `services/databaseService.js` powers `GET /api/admin/database`: it returns up to
 250 rows from each collection for the admin's read-only database browser. The
@@ -83,8 +89,10 @@ transactions are automatically flagged once that simulated duration has
 elapsed. `index.js` scans every `OVERSTAY_SCAN_INTERVAL_MS` (default `5000`)
 and broadcasts newly detected overstays to the Admin room. Exit operators can
 also click a blinking overstay spot in the lot map to notify the Admin. Only the
-Admin can force-release the vehicle; that settlement applies the configured
-overstay penalty.
+Admin can force-release the vehicle, and only once it has actually overstayed
+(flagged, or past the threshold); that settlement applies the configured
+overstay penalty and records the Admin as the exit actor. Operator overstay
+notifications are validated the same way.
 
 ## Seeding a local demo
 
