@@ -116,6 +116,8 @@ export function createHttpApi({
       const payload = await request("/exit/search", { query: { plateNumber } });
       return payload?.records ?? payload ?? [];
     },
+    quoteExit: ({ ticketId, plateNumber }) =>
+      request("/exit/quote", { query: { ticketId, plateNumber } }),
     processExit: (exit) => request("/exit/process", { method: "POST", body: exit }),
     notifyOverstay: ({ vehicleId, gateId }) =>
       request("/overstay/notify", { method: "POST", body: { vehicleId, gateId } }),

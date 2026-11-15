@@ -27,7 +27,8 @@ export function formatTimestamp(value) {
   return `${date.toISOString().slice(0, 16).replace("T", " ")} UTC`;
 }
 
-export const normalizePlate = (value) => value.trim().toUpperCase();
+// Same canonical form as the server: no spaces or hyphens, upper case.
+export const normalizePlate = (value) => value.replace(/[\s-]+/g, "").toUpperCase();
 
 export const errorMessage = (err, fallback) => (err && err.message) || fallback;
 

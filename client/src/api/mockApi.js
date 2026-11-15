@@ -41,6 +41,12 @@ const simulatedHours = (startMs, endMs = Date.now()) =>
     Math.max(0, (endMs - startMs) / 1000 / REAL_SECONDS_PER_SIMULATED_HOUR) * 100,
   ) / 100;
 
+// Same canonical plate form as the server: no spaces or hyphens, upper case.
+const canonicalPlate = (value) =>
+  String(value ?? "")
+    .replace(/[\s-]+/g, "")
+    .toUpperCase();
+
 const fail = (status, message, code) => Promise.reject({ status, code, message });
 const round2 = (n) => Math.round(n * 100) / 100;
 const clone = (value) => JSON.parse(JSON.stringify(value));
@@ -77,10 +83,9 @@ function calculateBaseFare(durationSeconds, vehicleType, config) {
     vehicleConfig.tiers.reduce((fare, tier, index) => {
       const nextThreshold =
         vehicleConfig.tiers[index + 1]?.afterHours ?? Number.POSITIVE_INFINITY;
-      const chargedHours = Math.max(
-        0,
-        Math.min(durationHours, nextThreshold) - Math.max(freeUntil, tier.afterHours),
-      );
+      // The first tier also covers the gap after the free interval.
+      const start = index === 0 ? freeUntil : Math.max(freeUntil, tier.afterHours);
+      const chargedHours = Math.max(0, Math.min(durationHours, nextThreshold) - start);
       return fare + chargedHours * tier.ratePerHour;
     }, 0),
   );
@@ -270,7 +275,7 @@ export function createMockApi({ delayMs = 150 } = {}) {
   };
 
   const settleMockBot = ({ ticketId, plateNumber, fare } = {}) => {
-    const wantedPlate = String(plateNumber ?? "").toUpperCase();
+    const wantedPlate = canonicalPlate(plateNumber);
     for (const bot of sim.bots.values()) {
       if (bot.status !== "waiting_exit" && bot.status !== "parked") continue;
       if (
@@ -422,6 +427,11 @@ export function createMockApi({ delayMs = 150 } = {}) {
     };
   };
 
+  const hasOverstayed = (record, untilMs) =>
+    Boolean(record.isOverstay) ||
+    simulatedHours(new Date(record.entryTimestamp).getTime(), untilMs) >=
+      overstayThresholdHours;
+
   const overstayRows = () =>
     active()
       .filter((record) => {
@@ -477,11 +487,11 @@ export function createMockApi({ delayMs = 150 } = {}) {
 
     async createEntry({ plateNumber, vehicleType, gateId }) {
       await wait();
-      const normalizedPlate = String(plateNumber ?? "")
-        .trim()
-        .toUpperCase();
+      const normalizedPlate = canonicalPlate(plateNumber);
       if (!normalizedPlate || !fareConfig[vehicleType])
         return fail(400, "Plate number and a valid vehicle type are required");
+      if (normalizedPlate.length > 16)
+        return fail(400, "plateNumber must be at most 16 characters", "INVALID_INPUT");
       if (active().some((r) => r.plateNumber === normalizedPlate))
         return fail(409, "This vehicle is already parked", "ALREADY_PARKED");
       const ticketId = nextTicketId();
@@ -507,9 +517,7 @@ export function createMockApi({ delayMs = 150 } = {}) {
 
     async searchPlate(plateNumber) {
       await wait();
-      const wanted = String(plateNumber ?? "")
-        .trim()
-        .toUpperCase();
+      const wanted = canonicalPlate(plateNumber);
       const matches = active().filter((r) => r.plateNumber === wanted);
       return matches.length ? matches.map(publicRecord) : fail(404, "Vehicle not found");
     },
@@ -519,10 +527,7 @@ export function createMockApi({ delayMs = 150 } = {}) {
       const record = active().find((r) =>
         ticketId
           ? r.ticketId === ticketId
-          : r.plateNumber ===
-            String(plateNumber ?? "")
-              .trim()
-              .toUpperCase(),
+          : r.plateNumber === canonicalPlate(plateNumber),
       );
       if (!record) return fail(404, "Vehicle not found");
       const billingEnd = record.parkingEndTimestamp
@@ -561,12 +566,46 @@ export function createMockApi({ delayMs = 150 } = {}) {
       };
     },
 
+    async quoteExit({ ticketId, plateNumber }) {
+      await wait();
+      const record = active().find((r) =>
+        ticketId
+          ? r.ticketId === ticketId
+          : r.plateNumber === canonicalPlate(plateNumber),
+      );
+      if (!record) return fail(404, "Vehicle not found");
+      const billingEnd = record.parkingEndTimestamp
+        ? new Date(record.parkingEndTimestamp).getTime()
+        : now();
+      const durationSeconds =
+        simulatedHours(new Date(record.entryTimestamp).getTime(), billingEnd) * 3600;
+      const baseFare = calculateBaseFare(durationSeconds, record.vehicleType, fareConfig);
+      const lostTicket = !ticketId;
+      const lostTicketPenalty = fareConfig[record.vehicleType].lostTicketPenalty;
+      return {
+        ticketId: record.ticketId,
+        plateNumber: record.plateNumber,
+        vehicleType: record.vehicleType,
+        lostTicket,
+        durationSeconds,
+        durationHours: durationSeconds / 3600,
+        fare: round2(baseFare + (lostTicket ? lostTicketPenalty : 0)),
+        breakdown: { baseFare, ...(lostTicket ? { lostTicketPenalty } : {}) },
+      };
+    },
+
     async notifyOverstay({ vehicleId, gateId }) {
       await wait();
       const record = active().find(
-        (r) => r.ticketId === vehicleId || r.plateNumber === vehicleId,
+        (r) => r.ticketId === vehicleId || r.plateNumber === canonicalPlate(vehicleId),
       );
       if (!record) return fail(404, "Active vehicle not found", "VEHICLE_NOT_FOUND");
+      if (!hasOverstayed(record, now()))
+        return fail(
+          409,
+          "This vehicle has not exceeded the overstay threshold",
+          "NOT_OVERSTAYED",
+        );
       record.isOverstay = true;
       log("OVERSTAY_FLAGGED");
       const durationSeconds =
@@ -741,7 +780,7 @@ export function createMockApi({ delayMs = 150 } = {}) {
 
     async getTransactions({ plate } = {}) {
       await wait();
-      const wanted = plate ? plate.trim().toUpperCase() : "";
+      const wanted = canonicalPlate(plate);
       const list = records
         .filter((r) => !wanted || r.plateNumber.includes(wanted))
         .map(
@@ -788,8 +827,16 @@ export function createMockApi({ delayMs = 150 } = {}) {
       const billingEnd = record.parkingEndTimestamp
         ? new Date(record.parkingEndTimestamp).getTime()
         : now();
+      if (!hasOverstayed(record, billingEnd))
+        return fail(
+          409,
+          "This vehicle has not exceeded the overstay threshold",
+          "NOT_OVERSTAYED",
+        );
       record.status = "completed";
       record.exitTimestamp = new Date(billingEnd).toISOString();
+      record.exitGateId = "Admin";
+      record.exitOperatorId = { username: "admin" };
       record.penaltyApplied = true;
       const durationSeconds =
         simulatedHours(new Date(record.entryTimestamp).getTime(), billingEnd) * 3600;

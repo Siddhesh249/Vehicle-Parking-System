@@ -109,4 +109,62 @@ describe("mock API (SAD 4.3 shapes)", () => {
 
     expect(overstays).toEqual([]);
   });
+
+  test("plates that differ only in spaces, hyphens or case are one vehicle", async () => {
+    const api = createMockApi({ delayMs: 0 });
+    await api.createEntry({
+      plateNumber: "ka 01-ab 7777",
+      vehicleType: "2W",
+      gateId: "Entry-1",
+    });
+
+    await expect(
+      api.createEntry({
+        plateNumber: "KA01AB7777",
+        vehicleType: "2W",
+        gateId: "Entry-1",
+      }),
+    ).rejects.toMatchObject({ status: 409 });
+    const [found] = await api.searchPlate("Ka-01 AB-7777");
+    expect(found.plateNumber).toBe("KA01AB7777");
+  });
+
+  test("turning the free first hour off bills from minute zero", async () => {
+    const api = createMockApi({ delayMs: 0 });
+    const config = await api.getFareConfig();
+    await api.updateFareTiers({
+      vehicleType: "2W",
+      firstHourFree: false,
+      tiers: [{ afterHours: 1, rate: 10 }],
+      lostTicketPenalty: config["2W"].lostTicketPenalty,
+      overstayPenalty: config["2W"].overstayPenalty,
+    });
+    const entry = await api.createEntry({
+      plateNumber: "KA02FF0001",
+      vehicleType: "2W",
+      gateId: "Entry-1",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 600));
+
+    const quote = await api.quoteExit({ ticketId: entry.ticketId });
+    expect(quote.breakdown.baseFare).toBeGreaterThan(0);
+    expect(quote.lostTicket).toBe(false);
+  });
+
+  test("overstay notification and force-release require an overstayed vehicle", async () => {
+    const api = createMockApi({ delayMs: 0 });
+    const entry = await api.createEntry({
+      plateNumber: "KA03OS0001",
+      vehicleType: "4W",
+      gateId: "Entry-1",
+    });
+
+    await expect(
+      api.notifyOverstay({ vehicleId: entry.ticketId, gateId: "Exit-1" }),
+    ).rejects.toMatchObject({ status: 409, code: "NOT_OVERSTAYED" });
+    await expect(api.forceRelease(entry.ticketId)).rejects.toMatchObject({
+      status: 409,
+      code: "NOT_OVERSTAYED",
+    });
+  });
 });
