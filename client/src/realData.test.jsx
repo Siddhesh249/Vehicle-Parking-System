@@ -75,7 +75,7 @@ describe("S3-T4 — real-data client integration (VPS-F-021, VPS-F-022)", () => 
 
     act(() => realtime.handlers.onUpdate({ spotId: "4W-01", status: "reserved" }));
 
-    expect(statusOf("4W-01")).toHaveTextContent(/reserved/i);
+    expect(statusOf("4W-01")).toHaveTextContent(/occupied/i);
     expect(statusOf("2W-01")).toHaveTextContent(/free/i);
   });
 
@@ -91,8 +91,8 @@ describe("S3-T4 — real-data client integration (VPS-F-021, VPS-F-022)", () => 
       ]),
     );
 
-    expect(statusOf("2W-01")).toHaveTextContent(/reserved/i);
-    expect(statusOf("4W-01")).toHaveTextContent(/reserved/i);
+    expect(statusOf("2W-01")).toHaveTextContent(/occupied/i);
+    expect(statusOf("4W-01")).toHaveTextContent(/occupied/i);
   });
 
   test("keeps lot state synchronized after reconnect without duplicate listeners", async () => {
@@ -116,7 +116,7 @@ describe("S3-T4 — real-data client integration (VPS-F-021, VPS-F-022)", () => 
     );
 
     expect(await screen.findByText("2W-001")).toBeInTheDocument();
-    expect(statusOf("2W-001")).toHaveTextContent(/reserved/i);
+    expect(statusOf("2W-001")).toHaveTextContent(/occupied/i);
     expect(socket.listeners["lot:snapshot"]).toHaveLength(1);
     expect(socket.listeners["spot:update"]).toHaveLength(1);
 

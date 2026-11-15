@@ -1,7 +1,10 @@
 /** Sprint 2 — T1: allocation service contract (VPS-F-010..014). */
 "use strict";
 
-jest.mock("../models/Spot", () => ({ findOneAndUpdate: jest.fn() }));
+jest.mock("../models/Spot", () => ({
+  findOneAndUpdate: jest.fn(),
+  updateOne: jest.fn(),
+}));
 jest.mock("../models/Vehicle", () => ({ findOneAndUpdate: jest.fn() }));
 jest.mock("../models/Transaction", () => ({ create: jest.fn() }));
 jest.mock("../services/auditService", () => ({ writeAuditEntry: jest.fn() }));
@@ -24,6 +27,7 @@ describe("allocateSpot", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     writeAuditEntry.mockResolvedValue({});
+    Spot.updateOne.mockResolvedValue({});
   });
 
   test.each([["2W"], ["4W"]])(
@@ -126,17 +130,23 @@ describe("allocateSpot", () => {
     expect(Spot.findOneAndUpdate).toHaveBeenCalledTimes(2);
   });
 
-
   test("does not let a later same-zone request claim a spot before the earlier request completes", async () => {
     let finishFirstTransaction;
     Spot.findOneAndUpdate
       .mockResolvedValueOnce({ _id: "spot-first", zone: "4W" })
       .mockResolvedValueOnce({ _id: "spot-second", zone: "4W" });
-    Vehicle.findOneAndUpdate.mockResolvedValue({ plateNumber: "TEST", vehicleType: "4W" });
+    Vehicle.findOneAndUpdate.mockResolvedValue({
+      plateNumber: "TEST",
+      vehicleType: "4W",
+    });
     Transaction.create
-      .mockImplementationOnce(() => new Promise((resolve) => {
-        finishFirstTransaction = () => resolve({ _id: "tx-first", ticketId: "first" });
-      }))
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishFirstTransaction = () =>
+              resolve({ _id: "tx-first", ticketId: "first" });
+          }),
+      )
       .mockResolvedValueOnce({ _id: "tx-second", ticketId: "second" });
 
     const first = allocateSpot(input({ plateNumber: "KA01FIRST" }));

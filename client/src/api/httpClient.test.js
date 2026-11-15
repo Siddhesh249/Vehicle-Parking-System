@@ -116,6 +116,23 @@ describe("S3-T4 — real API transport", () => {
     ["getTransactions", [{ plate: "KA01" }], "GET", "/api/admin/transactions?plate=KA01"],
     ["getTransactions", [], "GET", "/api/admin/transactions"],
     ["getAuditLog", [], "GET", "/api/admin/audit-log"],
+    ["getOverstays", [], "GET", "/api/admin/overstays"],
+    ["getFareConfig", [], "GET", "/api/admin/config/fare-tiers"],
+    ["getSpotConfig", [], "GET", "/api/admin/config/spots"],
+    [
+      "updateFareTiers",
+      [{ vehicleType: "4W", tiers: [{ afterHours: 1, rate: 20 }] }],
+      "PUT",
+      "/api/admin/config/fare-tiers",
+    ],
+    ["updateSpotCount", [{ zone: "2W", count: 12 }], "PUT", "/api/admin/config/spots"],
+    ["getOverstayConfig", [], "GET", "/api/admin/config/overstay"],
+    [
+      "updateOverstayConfig",
+      [{ thresholdHours: 8 }],
+      "PUT",
+      "/api/admin/config/overstay",
+    ],
     ["startSimulation", [{ ratePerMinute: 60 }], "POST", "/api/dev/simulate/start"],
     ["stopSimulation", [], "POST", "/api/dev/simulate/stop"],
     ["getSimulationStatus", [], "GET", "/api/dev/simulate/status"],
@@ -163,5 +180,18 @@ describe("S3-T4 — real API transport", () => {
     await expect(bareArray.api.getAuditLog()).resolves.toEqual({
       entries: [{ ticketId: "T2" }],
     });
+    await expect(bareArray.api.getOverstays()).resolves.toEqual([{ ticketId: "T2" }]);
+  });
+
+  test("normalises the admin overstay envelope into a list for the dashboard", async () => {
+    const { api } = setup({
+      response: reply(200, {
+        overstays: [{ vehicleId: "v1", ticketId: "TKT-1", duration: 9000 }],
+      }),
+    });
+
+    await expect(api.getOverstays()).resolves.toEqual([
+      { vehicleId: "v1", ticketId: "TKT-1", duration: 9000 },
+    ]);
   });
 });

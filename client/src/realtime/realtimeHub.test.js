@@ -7,7 +7,12 @@ function setup() {
     handlers = h;
     return disconnect;
   });
-  return { hub: createRealtimeHub(connect), connect, disconnect, push: (name, v) => handlers[name](v) };
+  return {
+    hub: createRealtimeHub(connect),
+    connect,
+    disconnect,
+    push: (name, v) => handlers[name](v),
+  };
 }
 
 describe("realtime hub", () => {

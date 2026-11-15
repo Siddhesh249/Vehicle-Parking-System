@@ -11,9 +11,9 @@ const mongoose = require("mongoose");
 const request = require("supertest");
 const { MongoMemoryServer } = require("mongodb-memory-server");
 const { io: createClient } = require("socket.io-client");
-const { app, server } = require("../../app");
-const Spot = require("../../models/Spot");
-const { signToken } = require("../../utils/jwtUtils");
+const { app, server } = require("../app");
+const Spot = require("../models/Spot");
+const { signToken } = require("../utils/jwtUtils");
 
 jest.setTimeout(60000);
 

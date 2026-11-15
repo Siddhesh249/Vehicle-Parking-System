@@ -1,10 +1,8 @@
 # Vehicle Parking System client
 
 The React/Vite client provides separate Entry-1, Entry-2, Exit-1, Exit-2, and
-Admin console views. During Sprint 2, the screens deliberately use an in-memory
-mock API that mirrors the server's allocation, lookup, exit-receipt, and tiered
-fare contracts. Sprint 3 adds a real HTTP + Socket.io client behind the same
-interface, selected with `VITE_API_MODE` (default: mock).
+Admin console views plus the developer-only Simulation Console. It can run
+against the in-memory mock API or the real HTTP + Socket.io backend.
 
 ## Commands
 
@@ -16,21 +14,67 @@ npm run build
 ```
 
 Run the app at the route for a console, such as `/entry-1` or `/admin`.
+Opening `/` or `/login` shows the sign-in page first; demo buttons pre-fill each
+gate account, but the credentials still go through the normal login API.
+The Simulation Console is at `/dev/simulate` and is intentionally absent from
+the role navigation. It is also compiled out of production builds; `npm start`
+from the repository root opens it in a second tab during local demos.
 
-## Talking to the backend (Sprint 3)
+## Talking to the backend
 
-By default the client runs on the in-memory mock, so it works without a server. To use the
-real API and live Socket.io updates:
+The default mode is the in-memory mock, so the UI works without a server. To use
+the real API and live Socket.io updates:
 
 1. Start MongoDB and the server (`server/README.md`) so it listens on `127.0.0.1:5000`.
 2. Seed the demo accounts and initial spots with `npm --prefix server run seed`.
-3. In `client/`, copy `.env.example` to `.env` and set `VITE_API_MODE=real`.
-4. `npm run dev`, open `/login`, and sign in as `entry1`, `entry2`, `exit1`, `exit2`, or
-   `admin`. The local seed password is `password123` unless `SEED_PASSWORD` was set.
+3. Set `VITE_API_MODE=real` in `client/.env`, or start through the repository
+   root launcher (`npm start`) which sets it for you.
+4. Open the app and sign in as `entry1`, `entry2`, `exit1`, `exit2`, or
+   `admin`. The demo buttons fill the local seed credentials (`password123`
+   unless `SEED_PASSWORD` / `VITE_DEMO_PASSWORD` was set).
 
-`vite.config.js` proxies `/api` and `/socket.io` to the server. The session (token, role, gate) is
-stored per browser tab in `sessionStorage`, so different tabs can be different gates.
+`vite.config.js` proxies `/api` and `/socket.io` to the server. The session
+(token, role, gate) is stored per browser tab in `sessionStorage`, so different
+tabs can be different gates.
 
-Where things live: `src/api/httpClient.js` (REST), `src/realtime/` (Socket.io connection and a
-hub that shares one connection per page), `src/hooks/useLiveLot.js` (lot state from REST + events),
-`src/components/Charts.jsx` (Recharts admin charts).
+## What is where
+
+- `src/api/httpClient.js` — REST transport for every SAD 4.3 endpoint.
+- `src/api/mockApi.js` — in-memory mock with the same method contract.
+- `src/api/session.js` — per-tab session storage.
+- `src/realtime/` — Socket.io connection and the hub that shares one connection per page.
+- `src/hooks/useLiveLot.js` — lot state from REST + realtime events.
+- `src/hooks/usePanel.js` — loading/error/refresh state for admin panels.
+- `src/components/` — gate consoles, bot queue panels, admin dashboard, charts, configuration, database browser, and Simulation Console.
+- `src/utils/` — money/duration formatting and chart-data adapters.
+
+## Admin configuration
+
+The Admin dashboard can edit:
+
+- Fare tiers, first-hour policy, lost-ticket penalty, and overstay penalty per vehicle type.
+- Two-wheeler and four-wheeler spot counts (occupied spots are never deleted).
+- The overstay threshold in hours. It cannot be lower than the highest fare tier.
+
+Changes are persisted by the backend and apply to subsequent exits without a
+frontend or server restart.
+
+## Demo traffic
+
+The Simulation Console (`/dev/simulate`) starts a bot fleet. Bots queue at entry
+gates and are only parked when an entry operator presses **Generate ticket**.
+When a bot's intended stay ends it frees its spot, moves to an exit gate and its
+billing clock stops; the exit operator scans the ticket (or handles a lost
+ticket), sees the frozen fare quote, and presses **Payment collected**. The
+consoles poll their gate queue every 1.5 seconds, so all five tabs stay in sync
+during the demo. `npm start` reseeds a clean demo state on each launch, so revenue
+and overstays do not carry over from a previous session. The six seeded parked
+cars also head to an exit gate 5–20 seconds after the server starts.
+
+The Admin dashboard also has a raw **Database** panel: pick a collection tab to
+see every column, with rows scrolling inside a fixed-height table.
+
+The demo clock is compressed: five real seconds represent one billed hour. The
+lot map shows occupied spots in green with a live hours timer. Overstayed spots
+blink red; on an exit console, clicking one notifies the Admin and shows
+“Notification sent to admin.”

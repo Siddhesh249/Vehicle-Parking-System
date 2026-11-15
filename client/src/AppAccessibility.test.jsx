@@ -2,6 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import App from "./App.jsx";
 import { mockApi } from "./api/mockApi.js";
+import { clearSession } from "./api/session.js";
 
 const renderAt = (path) => {
   window.history.pushState({}, "", path);
@@ -9,8 +10,10 @@ const renderAt = (path) => {
 };
 
 describe("final accessibility pass", () => {
+  beforeEach(() => clearSession());
+
   test("every page has banner, main and footer landmarks and a skip link to the content", () => {
-    renderAt("/");
+    renderAt("/login");
 
     expect(screen.getByRole("banner")).toBeInTheDocument();
     expect(screen.getByRole("main")).toHaveAttribute("id", "main-content");
@@ -24,17 +27,20 @@ describe("final accessibility pass", () => {
   });
 
   test.each([
-    ["/", "Choose a console"],
-    ["/entry-1", "Entry Gate 1"],
-    ["/admin", "Admin Dashboard"],
-    ["/dev/simulate", "Developer tools"],
-  ])("%s has a descriptive page title and one top-level heading", (path, title) => {
-    renderAt(path);
+    ["/login", "Sign in", /^sign in$/i],
+    ["/entry-1", "Entry Gate 1", /entry gate 1/i],
+    ["/admin", "Admin Dashboard", /admin dashboard/i],
+    ["/dev/simulate", "Developer tools", /developer tools/i],
+  ])(
+    "%s has a descriptive page title and one top-level heading",
+    (path, title, heading) => {
+      renderAt(path);
 
-    expect(document.title).toBe(`${title} · Vehicle Parking System`);
-    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(title);
-  });
+      expect(document.title).toBe(`${title} · Vehicle Parking System`);
+      expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+      expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(heading);
+    },
+  );
 
   test("the developer page is a direct address only: no skip, nav or footer link points to it", () => {
     renderAt("/dev/simulate");
@@ -44,7 +50,7 @@ describe("final accessibility pass", () => {
     }
   });
 
-  test("admin tables have accessible names", async () => {
+  test("admin tables have accessible names and a scrollable database view", async () => {
     // The audit log only shows a table once something has been logged.
     await mockApi.createEntry({
       plateNumber: "KA99ZZ0001",
@@ -57,27 +63,32 @@ describe("final accessibility pass", () => {
       await screen.findByRole("table", { name: "Transactions" }),
     ).toBeInTheDocument();
     expect(await screen.findByRole("table", { name: "Audit log" })).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: /database/i })).toBeInTheDocument();
   });
 
   test("lot map spots carry a text label, not colour alone", async () => {
     renderAt("/entry-1");
 
-    const spots = await screen.findAllByText(/^(Free|Reserved)$/);
+    const spots = await screen.findAllByText(/^(Free|Occupied|Overstay)$/);
     expect(spots.length).toBeGreaterThan(0);
   });
 
-  test("the simulation page shows the lot filling up while the generator runs", async () => {
+  test("starting the bot fleet fills the entry queue and waiting counters", async () => {
     const user = userEvent.setup();
     renderAt("/dev/simulate");
-    await screen.findAllByText(/^(Free|Reserved)$/);
-    const reservedBefore = screen.getAllByText("Reserved").length;
+    await screen.findByText("Waiting at entry");
 
     await user.type(screen.getByLabelText(/arrivals per minute/i), "600");
-    await user.click(screen.getByRole("button", { name: /^start$/i }));
+    await user.click(screen.getByRole("button", { name: /start fleet/i }));
+
     await waitFor(
-      () =>
-        expect(screen.getAllByText("Reserved").length).toBeGreaterThan(reservedBefore),
-      { timeout: 4000 },
+      () => {
+        const value = screen
+          .getByText("Waiting at entry")
+          .parentElement.querySelector(".fleet-stat__value").textContent;
+        expect(Number(value)).toBeGreaterThan(0);
+      },
+      { timeout: 5000 },
     );
 
     await user.click(screen.getByRole("button", { name: /^stop$/i }));

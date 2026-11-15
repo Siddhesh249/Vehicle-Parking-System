@@ -105,87 +105,84 @@ export default function FareOverrideForm({ api }) {
 
   return (
     <section className="console-panel">
-        <h3>Fare override</h3>
-        <p className="field-hint">
-          Changes the fare tiers for new exits until the server restarts.
+      <h3>Fare override</h3>
+      <p className="field-hint">
+        Changes the fare tiers for new exits until the server restarts.
+      </p>
+
+      <form className="fare-form" onSubmit={handleFareSubmit} noValidate>
+        <label>
+          Vehicle type
+          <select value={vehicleType} onChange={(e) => chooseVehicleType(e.target.value)}>
+            <option value="2W">2W (two-wheeler)</option>
+            <option value="4W">4W (four-wheeler)</option>
+          </select>
+        </label>
+        <label className="check-row">
+          <input
+            type="checkbox"
+            checked={firstHourFree}
+            onChange={(e) => setFirstHourFree(e.target.checked)}
+          />
+          First hour free
+        </label>
+
+        {tiers.map(([hours, rate], index) => (
+          <div className="tier-row" key={index}>
+            <label>
+              {`Tier ${index + 1} starts after (hours)`}
+              <input
+                type="number"
+                min="0"
+                step="any"
+                value={hours}
+                onChange={(e) => updateTier(index, 0, e.target.value)}
+              />
+            </label>
+            <label>
+              {`Tier ${index + 1} rate per hour`}
+              <input
+                type="number"
+                min="0"
+                step="any"
+                value={rate}
+                onChange={(e) => updateTier(index, 1, e.target.value)}
+              />
+            </label>
+          </div>
+        ))}
+
+        <label>
+          Lost-ticket penalty
+          <input
+            type="number"
+            min="0"
+            step="any"
+            value={lostTicketPenalty}
+            onChange={(e) => setLostTicketPenalty(e.target.value)}
+          />
+        </label>
+        <label>
+          Overstay penalty
+          <input
+            type="number"
+            min="0"
+            step="any"
+            value={overstayPenalty}
+            onChange={(e) => setOverstayPenalty(e.target.value)}
+          />
+        </label>
+        <button type="submit" className="secondary-button">
+          Apply fare override
+        </button>
+      </form>
+
+      {fareError && (
+        <p role="alert" className="console-error">
+          {fareError}
         </p>
-
-        <form className="fare-form" onSubmit={handleFareSubmit} noValidate>
-          <label>
-            Vehicle type
-            <select
-              value={vehicleType}
-              onChange={(e) => chooseVehicleType(e.target.value)}
-            >
-              <option value="2W">2W (two-wheeler)</option>
-              <option value="4W">4W (four-wheeler)</option>
-            </select>
-          </label>
-          <label className="check-row">
-            <input
-              type="checkbox"
-              checked={firstHourFree}
-              onChange={(e) => setFirstHourFree(e.target.checked)}
-            />
-            First hour free
-          </label>
-
-          {tiers.map(([hours, rate], index) => (
-            <div className="tier-row" key={index}>
-              <label>
-                {`Tier ${index + 1} starts after (hours)`}
-                <input
-                  type="number"
-                  min="0"
-                  step="any"
-                  value={hours}
-                  onChange={(e) => updateTier(index, 0, e.target.value)}
-                />
-              </label>
-              <label>
-                {`Tier ${index + 1} rate per hour`}
-                <input
-                  type="number"
-                  min="0"
-                  step="any"
-                  value={rate}
-                  onChange={(e) => updateTier(index, 1, e.target.value)}
-                />
-              </label>
-            </div>
-          ))}
-
-          <label>
-            Lost-ticket penalty
-            <input
-              type="number"
-              min="0"
-              step="any"
-              value={lostTicketPenalty}
-              onChange={(e) => setLostTicketPenalty(e.target.value)}
-            />
-          </label>
-          <label>
-            Overstay penalty
-            <input
-              type="number"
-              min="0"
-              step="any"
-              value={overstayPenalty}
-              onChange={(e) => setOverstayPenalty(e.target.value)}
-            />
-          </label>
-          <button type="submit" className="secondary-button">
-            Apply fare override
-          </button>
-        </form>
-
-        {fareError && (
-          <p role="alert" className="console-error">
-            {fareError}
-          </p>
-        )}
-        {fareMessage && <p role="status">{fareMessage}</p>}
-      </section>
+      )}
+      {fareMessage && <p role="status">{fareMessage}</p>}
+    </section>
   );
 }

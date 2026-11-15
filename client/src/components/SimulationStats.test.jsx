@@ -25,7 +25,9 @@ describe("Simulation counters", () => {
 
   test("shows the last error when the generator reports one", async () => {
     const api = {
-      getSimulationStatus: jest.fn().mockResolvedValue(reading({ lastError: "Database unavailable" })),
+      getSimulationStatus: jest
+        .fn()
+        .mockResolvedValue(reading({ lastError: "Database unavailable" })),
     };
     render(<SimulationStats api={api} />);
 

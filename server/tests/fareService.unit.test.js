@@ -20,6 +20,21 @@
 
 const { calculateFare, calculateFareDetails } = require("../services/fareService");
 
+// This is a pure arithmetic suite: keep the conventional 3600-seconds-per-hour
+// clock so the expected rupee values remain readable. Production default is the
+// demo clock (5 real seconds = 1 simulated hour), covered by simulatedTime tests.
+const previousSimulatedHourSeconds = process.env.SIMULATED_HOUR_SECONDS;
+beforeAll(() => {
+  process.env.SIMULATED_HOUR_SECONDS = "3600";
+});
+afterAll(() => {
+  if (previousSimulatedHourSeconds === undefined) {
+    delete process.env.SIMULATED_HOUR_SECONDS;
+  } else {
+    process.env.SIMULATED_HOUR_SECONDS = previousSimulatedHourSeconds;
+  }
+});
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 /**
  * Build a Date pair offset by the given number of minutes from a fixed anchor.

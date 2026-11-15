@@ -37,6 +37,14 @@ describe("S3-T4 — Socket.io client", () => {
     ]);
   });
 
+  test("reports an expired identify handshake as signed out", () => {
+    const { socket, handlers } = setup();
+    socket.trigger("connect");
+    socket.trigger("identify:error", { code: "UNAUTHORIZED" });
+
+    expect(handlers.onStatus).toHaveBeenLastCalledWith("signed-out");
+  });
+
   test("keeps exactly one listener per event across reconnects (no duplicates)", () => {
     const { socket } = setup();
     for (let i = 0; i < 3; i += 1) socket.trigger("connect");
@@ -50,7 +58,17 @@ describe("S3-T4 — Socket.io client", () => {
     const { socket, handlers } = setup();
     socket.trigger("spot:update", { spotId: "4W-01", status: "reserved" });
     socket.trigger("lot:snapshot", {
-      spots: [{ spotId: "2W-01", spotNumber: "2W-001", zone: "2W", status: "free" }],
+      spots: [
+        {
+          spotId: "2W-01",
+          spotNumber: "2W-001",
+          zone: "2W",
+          status: "free",
+          vehicle: null,
+        },
+      ],
+      timeScale: { realSecondsPerHour: 5, hoursPerRealSecond: 0.2 },
+      overstayThresholdHours: 6,
     });
     socket.trigger("lot:snapshot", [{ id: "4W-02", zone: "4W", status: "reserved" }]);
     socket.trigger("overstay:alert", {
@@ -65,12 +83,24 @@ describe("S3-T4 — Socket.io client", () => {
       spotId: "4W-01",
       status: "reserved",
     });
-    expect(handlers.onSnapshot).toHaveBeenNthCalledWith(1, [
-      { id: "2W-01", spotNumber: "2W-001", zone: "2W", status: "free" },
-    ]);
-    expect(handlers.onSnapshot).toHaveBeenNthCalledWith(2, [
-      { id: "4W-02", zone: "4W", status: "reserved" },
-    ]);
+    expect(handlers.onSnapshot).toHaveBeenNthCalledWith(1, {
+      spots: [
+        {
+          id: "2W-01",
+          spotNumber: "2W-001",
+          zone: "2W",
+          status: "free",
+          vehicle: null,
+        },
+      ],
+      timeScale: { realSecondsPerHour: 5, hoursPerRealSecond: 0.2 },
+      overstayThresholdHours: 6,
+    });
+    expect(handlers.onSnapshot).toHaveBeenNthCalledWith(2, {
+      spots: [{ id: "4W-02", zone: "4W", status: "reserved", vehicle: null }],
+      timeScale: undefined,
+      overstayThresholdHours: undefined,
+    });
     expect(handlers.onOverstay).toHaveBeenCalledWith({
       vehicleId: "v1",
       ticketId: "TKT-1",

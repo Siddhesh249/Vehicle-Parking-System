@@ -26,7 +26,8 @@ function parseDate(value, name) {
   const text = optionalString(value, name);
   if (text === undefined) return undefined;
   const date = new Date(text);
-  if (!Number.isFinite(date.getTime())) throw invalidQuery(`${name} must be a valid date`);
+  if (!Number.isFinite(date.getTime()))
+    throw invalidQuery(`${name} must be a valid date`);
   return date;
 }
 
@@ -38,16 +39,25 @@ function dateRangeFilter(from, to) {
   return { ...(start ? { $gte: start } : {}), ...(end ? { $lte: end } : {}) };
 }
 
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 /** Raw transaction records filtered by plate, entry date range and gate (VPS-F-054). */
 async function listTransactions({ plate, from, to, gate } = {}) {
   const filter = {};
 
   const plateNumber = optionalString(plate, "plate");
-  if (plateNumber) filter.plateNumber = plateNumber.toUpperCase();
+  if (plateNumber) {
+    // Admin search is intentionally partial (case-insensitive) but the input is
+    // escaped so a search term can never become a Mongo query operator.
+    filter.plateNumber = { $regex: escapeRegExp(plateNumber.toUpperCase()) };
+  }
 
   const gateId = optionalString(gate, "gate");
   if (gateId) {
-    if (!GATE_IDS.includes(gateId)) throw invalidQuery(`gate must be one of ${GATE_IDS.join(", ")}`);
+    if (!GATE_IDS.includes(gateId))
+      throw invalidQuery(`gate must be one of ${GATE_IDS.join(", ")}`);
     filter.$or = [{ entryGateId: gateId }, { exitGateId: gateId }];
   }
 
@@ -57,6 +67,8 @@ async function listTransactions({ plate, from, to, gate } = {}) {
   const records = await Transaction.find(filter)
     .sort({ entryTimestamp: -1 })
     .limit(MAX_RESULTS)
+    .populate("entryOperatorId", "username")
+    .populate("exitOperatorId", "username")
     .lean();
   return { records };
 }
@@ -85,6 +97,7 @@ async function listAuditEntries({ action, actor, from, to } = {}) {
   const entries = await AuditLog.find(filter)
     .sort({ createdAt: -1 })
     .limit(MAX_RESULTS)
+    .populate("actorId", "username")
     .lean();
   return { entries };
 }

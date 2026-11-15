@@ -93,6 +93,8 @@ jobs:
 
       - name: Seed load-test data
         working-directory: server
+        env:
+          SEED_DEMO_DATA: "false"
         run: npm run seed
 
       - name: Start backend
@@ -159,3 +161,37 @@ jobs:
       - name: Build client
         working-directory: client
         run: npm run build
+
+  launcher-smoke:
+    name: Launcher smoke — ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: |
+            package-lock.json
+            server/package-lock.json
+            client/package-lock.json
+
+      - name: Environment report
+        run: node scripts/doctor.mjs
+
+      - name: Start the full stack and verify it
+        run: node scripts/run.mjs --smoke --mongo=memory --no-browser --verbose
+        env:
+          CI: "true"
+
+      - name: Format check and production build
+        run: node scripts/check.mjs --only=format,build --no-install

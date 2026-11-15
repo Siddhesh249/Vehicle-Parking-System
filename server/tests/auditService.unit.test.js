@@ -13,23 +13,38 @@ describe("audit service", () => {
     const entry = { _id: "audit-1", action: "VEHICLE_ENTRY" };
     AuditLog.create.mockResolvedValue(entry);
 
-    await expect(auditService.writeAuditEntry({
-      action: "VEHICLE_ENTRY", actorId: "operator-1", actorRole: "operator", details: { ticketId: "TKT-1" },
-    })).resolves.toBe(entry);
+    await expect(
+      auditService.writeAuditEntry({
+        action: "VEHICLE_ENTRY",
+        actorId: "operator-1",
+        actorRole: "operator",
+        details: { ticketId: "TKT-1" },
+      }),
+    ).resolves.toBe(entry);
 
     expect(AuditLog.create).toHaveBeenCalledTimes(1);
     expect(AuditLog.create).toHaveBeenCalledWith({
-      action: "VEHICLE_ENTRY", actorId: "operator-1", actorRole: "operator", details: { ticketId: "TKT-1" },
+      action: "VEHICLE_ENTRY",
+      actorId: "operator-1",
+      actorRole: "operator",
+      details: { ticketId: "TKT-1" },
     });
   });
 
   test.each([
-    ["VEHICLE_ENTRY", "operator"], ["VEHICLE_EXIT", "operator"],
-    ["SPOT_FORCE_RELEASE", "admin"], ["OVERSTAY_FLAGGED", "operator"],
-  ])("accepts state-changing audit action %s from %s actor", async (action, actorRole) => {
-    AuditLog.create.mockResolvedValue({ action });
-    await expect(auditService.writeAuditEntry({ action, actorId: "actor-1", actorRole })).resolves.toEqual({ action });
-  });
+    ["VEHICLE_ENTRY", "operator"],
+    ["VEHICLE_EXIT", "operator"],
+    ["SPOT_FORCE_RELEASE", "admin"],
+    ["OVERSTAY_FLAGGED", "operator"],
+  ])(
+    "accepts state-changing audit action %s from %s actor",
+    async (action, actorRole) => {
+      AuditLog.create.mockResolvedValue({ action });
+      await expect(
+        auditService.writeAuditEntry({ action, actorId: "actor-1", actorRole }),
+      ).resolves.toEqual({ action });
+    },
+  );
 
   test("does not expose update or delete operations that could rewrite the audit trail", () => {
     expect(auditService).not.toHaveProperty("updateAuditEntry");
@@ -39,8 +54,12 @@ describe("audit service", () => {
 
   test("does not claim a write succeeded when persistence rejects", async () => {
     AuditLog.create.mockRejectedValue(new Error("database unavailable"));
-    await expect(auditService.writeAuditEntry({
-      action: "VEHICLE_EXIT", actorId: "operator-1", actorRole: "operator",
-    })).rejects.toThrow("database unavailable");
+    await expect(
+      auditService.writeAuditEntry({
+        action: "VEHICLE_EXIT",
+        actorId: "operator-1",
+        actorRole: "operator",
+      }),
+    ).rejects.toThrow("database unavailable");
   });
 });

@@ -28,13 +28,19 @@ describe("admin charts", () => {
   test("describes each chart in text for assistive technology", () => {
     render(
       <>
-        <OccupancyChart history={[{ timestamp: "2026-10-21T08:00:00.000Z", totalPct: 62 }]} />
+        <OccupancyChart
+          history={[{ timestamp: "2026-10-21T08:00:00.000Z", totalPct: 62 }]}
+        />
         <RevenueChart byDay={[{ date: "2026-10-21", total: 1250 }]} />
       </>,
     );
 
-    expect(screen.getByRole("img", { name: /occupancy over time, latest 62%/i })).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: /revenue by day, latest ₹1,250\.00/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("img", { name: /occupancy over time, latest 62%/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("img", { name: /revenue by day, latest ₹1,250\.00/i }),
+    ).toBeInTheDocument();
   });
 
   test("shows a short message instead of an empty chart", () => {
@@ -59,8 +65,14 @@ describe("admin charts", () => {
     };
     const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
     try {
-      render(<OccupancyChart history={[{ timestamp: "2026-10-21T08:00:00.000Z", totalPct: 62 }]} />);
-      expect(screen.getByRole("img", { name: /occupancy over time/i })).toBeInTheDocument();
+      render(
+        <OccupancyChart
+          history={[{ timestamp: "2026-10-21T08:00:00.000Z", totalPct: 62 }]}
+        />,
+      );
+      expect(
+        screen.getByRole("img", { name: /occupancy over time/i }),
+      ).toBeInTheDocument();
     } finally {
       warn.mockRestore();
       globalThis.ResizeObserver = original;

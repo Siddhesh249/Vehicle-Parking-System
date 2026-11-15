@@ -3,7 +3,9 @@ import userEvent from "@testing-library/user-event";
 import FareOverrideForm from "./FareOverrideForm.jsx";
 
 const makeApi = (overrides = {}) => ({
-  setSimulationFareTiers: jest.fn().mockResolvedValue({ updated: true, vehicleType: "4W" }),
+  setSimulationFareTiers: jest
+    .fn()
+    .mockResolvedValue({ updated: true, vehicleType: "4W" }),
   ...overrides,
 });
 const apply = () => screen.getByRole("button", { name: /apply fare override/i });
@@ -74,7 +76,9 @@ describe("Fare override form (VPS-DEV-002)", () => {
     await user.type(screen.getByLabelText(/tier 2 starts after/i), "1");
     await user.click(apply());
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(/start hours must increase/i);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /start hours must increase/i,
+    );
     expect(api.setSimulationFareTiers).not.toHaveBeenCalled();
   });
 
@@ -86,20 +90,25 @@ describe("Fare override form (VPS-DEV-002)", () => {
     await user.type(screen.getByLabelText(/lost-ticket penalty/i), "-1");
     await user.click(apply());
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(/penalties must be zero or more/i);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /penalties must be zero or more/i,
+    );
     expect(api.setSimulationFareTiers).not.toHaveBeenCalled();
   });
 
   test("shows the server's validation message", async () => {
     const user = userEvent.setup();
     const api = makeApi({
-      setSimulationFareTiers: jest
-        .fn()
-        .mockRejectedValue({ status: 400, message: "Fare tiers need increasing afterHours" }),
+      setSimulationFareTiers: jest.fn().mockRejectedValue({
+        status: 400,
+        message: "Fare tiers need increasing afterHours",
+      }),
     });
     render(<FareOverrideForm api={api} />);
     await user.click(apply());
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(/need increasing afterhours/i);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /need increasing afterhours/i,
+    );
   });
 });

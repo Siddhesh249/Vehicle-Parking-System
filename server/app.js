@@ -10,36 +10,78 @@ const { allocateSpot } = require("./services/allocationService");
 const {
   lookupByTicket,
   searchByPlate,
+  quoteExit,
   processExit,
 } = require("./services/fareExitService");
 const { getOccupancy, getRevenue } = require("./services/analyticsService");
 const { listTransactions, listAuditEntries } = require("./services/adminQueryService");
-const { updateFareTiers, updateSpotCount } = require("./services/adminConfigService");
-const { notifyOverstay, forceRelease } = require("./services/overstayService");
+const {
+  getFareConfig,
+  getSpotConfig,
+  updateFareTiers,
+  updateSpotCount,
+} = require("./services/adminConfigService");
+const {
+  notifyOverstay,
+  forceRelease,
+  listOverstays,
+} = require("./services/overstayService");
+const {
+  getOverstayConfig,
+  updateOverstayThreshold,
+} = require("./services/overstayConfigService");
 const { requireRole } = require("./middleware/authMiddleware");
 const { verifyToken } = require("./utils/jwtUtils");
+const { simulatedHoursBetween, timeScaleInfo } = require("./utils/simulatedTime");
 const {
   startSimulation,
+  setSimulationRate,
   stopSimulation,
   getSimulationState,
   setFareOverride,
+  getFareOverride,
+  clearFareOverrides,
+  getEntryQueue,
+  getExitQueue,
+  admitEntryBot,
+  inspectExitBot,
+  findBotExitTime,
+  markBotSettled,
+  setPromotionListener,
 } = require("./services/simulationService");
+const { getDatabaseSnapshot } = require("./services/databaseService");
 const Spot = require("./models/Spot");
+const Transaction = require("./models/Transaction");
 
 const app = express();
+app.disable("x-powered-by");
 const server = http.createServer(app);
 
 const clientUrl = process.env.CLIENT_URL || "http://localhost:5173";
+const allowedOrigins = new Set(
+  clientUrl
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean),
+);
+const localOriginPattern = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 
-app.use(cors({ origin: clientUrl }));
-app.use(express.json());
+function isAllowedOrigin(origin) {
+  return !origin || allowedOrigins.has(origin) || localOriginPattern.test(origin);
+}
 
-const io = new Server(server, {
-  cors: {
-    origin: clientUrl,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
+const corsOptions = {
+  origin(origin, callback) {
+    if (isAllowedOrigin(origin)) return callback(null, true);
+    return callback(new Error("Origin is not allowed by CORS"));
   },
-});
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
+};
+
+app.use(cors(corsOptions));
+app.use(express.json({ limit: "1mb" }));
+
+const io = new Server(server, { cors: corsOptions });
 
 function socketRoomFor(user) {
   return user.role === "admin" ? "admin" : `gate:${user.gateId}`;
@@ -57,6 +99,29 @@ async function buildLotSnapshot({ zone } = {}) {
     .sort({ zone: 1, spotNumber: 1 })
     .lean();
 
+  const reservedSpotIds = spots
+    .filter((spot) => spot.status === "reserved")
+    .map((spot) => spot._id);
+  const [activeTransactions, overstayConfig] = await Promise.all([
+    reservedSpotIds.length
+      ? Transaction.find(
+          { status: "active", spotId: { $in: reservedSpotIds } },
+          {
+            ticketId: 1,
+            plateNumber: 1,
+            vehicleType: 1,
+            spotId: 1,
+            entryTimestamp: 1,
+            isOverstay: 1,
+          },
+        ).lean()
+      : [],
+    getOverstayConfig(),
+  ]);
+  const transactionBySpot = new Map(
+    activeTransactions.map((transaction) => [String(transaction.spotId), transaction]),
+  );
+
   const byZone = {
     "2W": { occupied: 0, total: 0, pct: 0 },
     "4W": { occupied: 0, total: 0, pct: 0 },
@@ -71,20 +136,43 @@ async function buildLotSnapshot({ zone } = {}) {
     summary.pct = percentage(summary.occupied, summary.total);
   }
 
+  const now = new Date();
   const occupied = spots.filter((spot) => spot.status === "reserved").length;
   return {
-    spots: spots.map((spot) => ({
-      id: String(spot._id),
-      spotNumber: spot.spotNumber,
-      zone: spot.zone,
-      status: spot.status,
-    })),
+    spots: spots.map((spot) => {
+      const transaction = transactionBySpot.get(String(spot._id));
+      const durationHours = transaction
+        ? simulatedHoursBetween(transaction.entryTimestamp, now)
+        : null;
+      return {
+        id: String(spot._id),
+        spotNumber: spot.spotNumber,
+        zone: spot.zone,
+        status: spot.status,
+        vehicle: transaction
+          ? {
+              transactionId: String(transaction._id),
+              ticketId: transaction.ticketId,
+              plateNumber: transaction.plateNumber,
+              vehicleType: transaction.vehicleType,
+              entryTimestamp: transaction.entryTimestamp,
+              durationHours,
+              isOverstay:
+                Boolean(transaction.isOverstay) ||
+                durationHours >= overstayConfig.thresholdHours,
+            }
+          : null,
+      };
+    }),
     occupancy: {
       totalPct: percentage(occupied, spots.length),
       occupied,
       totalSpots: spots.length,
       byZone,
     },
+    timeScale: timeScaleInfo(),
+    overstayThresholdHours: overstayConfig.thresholdHours,
+    minimumOverstayThresholdHours: overstayConfig.minimumHours,
   };
 }
 
@@ -105,6 +193,13 @@ function broadcastLotSnapshot() {
     .then((snapshot) => io.to("authenticated").emit("lot:snapshot", snapshot))
     .catch(() => {});
 }
+
+// A demo car that reaches its exit queue frees its spot immediately; tell every
+// connected lot map about that without waiting for the next poll.
+setPromotionListener((promoted) => {
+  for (const bot of promoted) broadcastSpotUpdate(bot.spotId, "free");
+  broadcastLotSnapshot();
+});
 
 function authenticateToken(req, res, next) {
   const authorization = req.headers.authorization;
@@ -171,7 +266,10 @@ app.get("/api/lot/status", authenticateToken, async (req, res) => {
 
 // Sprint 4 T2: developer-only simulation controls. Never expose in production.
 function requireDevelopmentMode(req, res, next) {
-  if (process.env.NODE_ENV === "production") {
+  if (
+    process.env.NODE_ENV === "production" ||
+    process.env.DISABLE_SIMULATION === "true"
+  ) {
     return res.status(404).json({
       error: { code: "NOT_FOUND", message: "Route not found" },
     });
@@ -208,6 +306,143 @@ app.put("/api/dev/simulate/fare-tiers", requireDevelopmentMode, (req, res) => {
   }
 });
 
+// Current effective fare table for the override editor, including overrides.
+app.get("/api/dev/simulate/fare-tiers", requireDevelopmentMode, async (_req, res) => {
+  try {
+    const base = await getFareConfig();
+    for (const vehicleType of ["2W", "4W"]) {
+      const override = getFareOverride(vehicleType)?.[vehicleType];
+      if (!override) continue;
+      base[vehicleType] = {
+        firstHourFree: override.firstHourFree,
+        tiers: override.tiers.map(({ afterHours, ratePerHour }) => ({
+          afterHours,
+          rate: ratePerHour,
+        })),
+        lostTicketPenalty:
+          override.lostTicketPenalty ?? base[vehicleType].lostTicketPenalty,
+        overstayPenalty: override.overstayPenalty ?? base[vehicleType].overstayPenalty,
+      };
+    }
+    return res.status(200).json(base);
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
+
+app.delete("/api/dev/simulate/fare-tiers", requireDevelopmentMode, (req, res) => {
+  const vehicleType = req.query?.vehicleType;
+  if (vehicleType !== undefined && !["2W", "4W"].includes(vehicleType)) {
+    return res.status(400).json({
+      error: { code: "INVALID_REQUEST", message: "vehicleType must be 2W or 4W" },
+    });
+  }
+  return res.status(200).json(clearFareOverrides(vehicleType));
+});
+
+// Change the traffic rate while the fleet keeps moving (no counter reset).
+app.put("/api/dev/simulate/rate", requireDevelopmentMode, (req, res) => {
+  try {
+    return res
+      .status(200)
+      .json(setSimulationRate({ ratePerMinute: req.body?.ratePerMinute }));
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
+
+// Operator-driven bot queues. Requests still carry the operator's real token,
+// so every ticket/payment is attributed to the signed-in gate account.
+app.get(
+  "/api/dev/simulate/queue/entry",
+  requireDevelopmentMode,
+  authenticateToken,
+  requireGate("Entry-"),
+  (req, res) => {
+    return res.status(200).json(getEntryQueue(req.user.gateId));
+  },
+);
+
+app.post(
+  "/api/dev/simulate/queue/entry/admit",
+  requireDevelopmentMode,
+  authenticateToken,
+  requireGate("Entry-"),
+  async (req, res) => {
+    try {
+      const result = await admitEntryBot({
+        botId: req.body?.botId,
+        gateId: req.user.gateId,
+        operatorId: req.user.userId,
+      });
+      broadcastSpotUpdate(result.spotId, "reserved");
+      broadcastLotSnapshot();
+      return res.status(201).json(result);
+    } catch (error) {
+      return sendServiceError(res, error);
+    }
+  },
+);
+
+app.get(
+  "/api/dev/simulate/queue/exit",
+  requireDevelopmentMode,
+  authenticateToken,
+  requireGate("Exit-"),
+  (req, res) => {
+    return res.status(200).json(getExitQueue(req.user.gateId));
+  },
+);
+
+app.post(
+  "/api/dev/simulate/queue/exit/scan",
+  requireDevelopmentMode,
+  authenticateToken,
+  requireGate("Exit-"),
+  async (req, res) => {
+    try {
+      const bot = inspectExitBot({ botId: req.body?.botId, gateId: req.user.gateId });
+      const quote = await quoteExit({
+        ticketId: bot.hasTicket ? bot.ticketId : undefined,
+        plateNumber: bot.plateNumber,
+        exitTimestamp: new Date(bot.parkingEndTimestamp),
+      });
+      return res.status(200).json({ ...bot, quote });
+    } catch (error) {
+      return sendServiceError(res, error);
+    }
+  },
+);
+
+app.post(
+  "/api/dev/simulate/queue/exit/settle",
+  requireDevelopmentMode,
+  authenticateToken,
+  requireGate("Exit-"),
+  async (req, res) => {
+    try {
+      const bot = inspectExitBot({ botId: req.body?.botId, gateId: req.user.gateId });
+      const receipt = await processExit({
+        ticketId: bot.hasTicket ? bot.ticketId : undefined,
+        plateNumber: bot.plateNumber,
+        gateId: req.user.gateId,
+        operatorId: req.user.userId,
+        exitTimestamp: new Date(bot.parkingEndTimestamp),
+      });
+      markBotSettled({
+        ticketId: receipt.ticketId,
+        plateNumber: receipt.plateNumber,
+        fare: receipt.fare,
+      });
+      broadcastSpotUpdate(receipt.spotId, "free");
+      broadcastLotSnapshot();
+      return res.status(200).json(receipt);
+    } catch (error) {
+      return sendServiceError(res, error);
+    }
+  },
+);
+
 app.post("/api/auth/login", async (req, res) => {
   const { username, password } = req.body || {};
   if (
@@ -225,7 +460,12 @@ app.post("/api/auth/login", async (req, res) => {
     const result = await login(username.trim(), password);
     return res.status(200).json(result);
   } catch (error) {
-    const status = error.statusCode || 401;
+    const status = Number.isInteger(error.statusCode) ? error.statusCode : 500;
+    if (status === 500) {
+      return res.status(500).json({
+        error: { code: "INTERNAL_ERROR", message: "An unexpected server error occurred" },
+      });
+    }
     const code = status === 423 ? "ACCOUNT_LOCKED" : "INVALID_CREDENTIALS";
     return res.status(status).json({ error: { code, message: error.message } });
   }
@@ -268,19 +508,14 @@ app.get(
   },
 );
 
-app.get(
-  "/api/exit/search",
-  authenticateToken,
-  requireGate("Exit-"),
-  async (req, res) => {
-    try {
-      const transactions = await searchByPlate(req.query.plateNumber);
-      return res.status(200).json(transactions);
-    } catch (error) {
-      return sendServiceError(res, error);
-    }
-  },
-);
+app.get("/api/exit/search", authenticateToken, requireGate("Exit-"), async (req, res) => {
+  try {
+    const transactions = await searchByPlate(req.query.plateNumber);
+    return res.status(200).json(transactions);
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
 
 app.post(
   "/api/exit/process",
@@ -288,11 +523,22 @@ app.post(
   requireGate("Exit-"),
   async (req, res) => {
     try {
+      const botExitTime = findBotExitTime({
+        ticketId: req.body?.ticketId,
+        plateNumber: req.body?.plateNumber,
+      });
       const receipt = await processExit({
         ticketId: req.body?.ticketId,
         plateNumber: req.body?.plateNumber,
         gateId: req.user.gateId,
         operatorId: req.user.userId,
+        exitTimestamp: botExitTime ?? new Date(),
+      });
+      // If this exit belonged to a simulated car, retire it from the bot queue.
+      markBotSettled({
+        ticketId: receipt.ticketId,
+        plateNumber: receipt.plateNumber,
+        fare: receipt.fare,
       });
       broadcastSpotUpdate(receipt.spotId, "free");
       broadcastLotSnapshot();
@@ -332,33 +578,42 @@ app.get(
   },
 );
 
-app.get(
-  "/api/admin/transactions",
-  authenticateToken,
-  requireAdmin,
-  async (req, res) => {
-    try {
-      const { plate, from, to, gate } = req.query;
-      return res.status(200).json(await listTransactions({ plate, from, to, gate }));
-    } catch (error) {
-      return sendServiceError(res, error);
-    }
-  },
-);
+app.get("/api/admin/transactions", authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { plate, from, to, gate } = req.query;
+    return res.status(200).json(await listTransactions({ plate, from, to, gate }));
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
 
-app.get(
-  "/api/admin/audit-log",
-  authenticateToken,
-  requireAdmin,
-  async (req, res) => {
-    try {
-      const { action, actor, from, to } = req.query;
-      return res.status(200).json(await listAuditEntries({ action, actor, from, to }));
-    } catch (error) {
-      return sendServiceError(res, error);
-    }
-  },
-);
+app.get("/api/admin/audit-log", authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { action, actor, from, to } = req.query;
+    return res.status(200).json(await listAuditEntries({ action, actor, from, to }));
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
+
+// Raw database browser for the admin's root-level access (VPS-F-054).
+app.get("/api/admin/database", authenticateToken, requireAdmin, async (_req, res) => {
+  try {
+    return res.status(200).json(await getDatabaseSnapshot());
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
+
+// Admin overstay feed: vehicles become visible automatically once the
+// configurable threshold is crossed, even if no operator has notified yet.
+app.get("/api/admin/overstays", authenticateToken, requireAdmin, async (_req, res) => {
+  try {
+    return res.status(200).json({ overstays: await listOverstays() });
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
 
 // Sprint 3 T2: gate operators report overstays only for their own gate.
 app.post(
@@ -388,7 +643,9 @@ app.post(
         plateNumber: notification.plateNumber,
         gateId: notification.gateId,
         duration: notification.durationSeconds,
+        durationHours: notification.durationHours,
       });
+      broadcastLotSnapshot();
       return res.status(200).json(notification);
     } catch (error) {
       return sendServiceError(res, error);
@@ -396,17 +653,14 @@ app.post(
   },
 );
 
-// Sprint 3 T2: admin configuration writes and overstay force-release.
-app.put(
+// Sprint 3 T2 / Sprint 4 polish: admin configuration reads and writes.
+app.get(
   "/api/admin/config/fare-tiers",
   authenticateToken,
   requireAdmin,
-  async (req, res) => {
+  async (_req, res) => {
     try {
-      const { vehicleType, tiers } = req.body || {};
-      return res
-        .status(200)
-        .json(await updateFareTiers({ vehicleType, tiers }, req.user));
+      return res.status(200).json(await getFareConfig());
     } catch (error) {
       return sendServiceError(res, error);
     }
@@ -414,10 +668,36 @@ app.put(
 );
 
 app.put(
-  "/api/admin/config/spots",
+  "/api/admin/config/fare-tiers",
   authenticateToken,
   requireAdmin,
   async (req, res) => {
+    try {
+      const { vehicleType, tiers, firstHourFree, lostTicketPenalty, overstayPenalty } =
+        req.body || {};
+      return res
+        .status(200)
+        .json(
+          await updateFareTiers(
+            { vehicleType, tiers, firstHourFree, lostTicketPenalty, overstayPenalty },
+            req.user,
+          ),
+        );
+    } catch (error) {
+      return sendServiceError(res, error);
+    }
+  },
+);
+
+app.get("/api/admin/config/spots", authenticateToken, requireAdmin, async (_req, res) => {
+  try {
+    return res.status(200).json(await getSpotConfig());
+  } catch (error) {
+    return sendServiceError(res, error);
+  }
+});
+
+app.put("/api/admin/config/spots", authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { zone, count } = req.body || {};
     const result = await updateSpotCount({ zone, count }, req.user);
@@ -428,13 +708,57 @@ app.put(
   }
 });
 
+app.get(
+  "/api/admin/config/overstay",
+  authenticateToken,
+  requireAdmin,
+  async (_req, res) => {
+    try {
+      return res.status(200).json(await getOverstayConfig());
+    } catch (error) {
+      return sendServiceError(res, error);
+    }
+  },
+);
+
+app.put(
+  "/api/admin/config/overstay",
+  authenticateToken,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const result = await updateOverstayThreshold(
+        { thresholdHours: req.body?.thresholdHours },
+        req.user,
+      );
+      broadcastLotSnapshot();
+      return res.status(200).json(result);
+    } catch (error) {
+      return sendServiceError(res, error);
+    }
+  },
+);
+
 app.post(
   "/api/admin/vehicles/:id/force-release",
   authenticateToken,
   requireAdmin,
   async (req, res) => {
     try {
-      const result = await forceRelease({ vehicleId: req.params.id, admin: req.user });
+      const botExitTime = findBotExitTime({
+        ticketId: req.params.id,
+        transactionId: req.params.id,
+      });
+      const result = await forceRelease({
+        vehicleId: req.params.id,
+        admin: req.user,
+        now: botExitTime ?? new Date(),
+      });
+      markBotSettled({
+        ticketId: result.ticketId,
+        plateNumber: result.plateNumber,
+        fare: result.fare,
+      });
       broadcastSpotUpdate(result.spotId, "free");
       broadcastLotSnapshot();
       return res.status(200).json(result);
@@ -455,6 +779,11 @@ io.on("connection", (socket) => {
         throw new Error("Operator tokens must include a gate assignment");
       }
 
+      // A reconnect can reuse a socket object; leave any stale role rooms so a
+      // changed token can never keep access granted to the previous identity.
+      for (const room of socket.rooms) {
+        if (room !== socket.id) socket.leave(room);
+      }
       socket.data.user = user;
       socket.join("authenticated");
       socket.join(socketRoomFor(user));
@@ -466,8 +795,28 @@ io.on("connection", (socket) => {
       acknowledge({ ok: false, error });
     }
   });
-
-  socket.on("disconnect", () => {});
 });
 
-module.exports = { app, server, io, sendLotSnapshot };
+// Unknown endpoints and parser failures use the same error envelope as the
+// services (SAD 4.4) instead of Express' default HTML response.
+app.use((_req, res) => {
+  res.status(404).json({ error: { code: "NOT_FOUND", message: "Route not found" } });
+});
+
+app.use((error, _req, res, _next) => {
+  if (error?.type === "entity.parse.failed" || error instanceof SyntaxError) {
+    return res.status(400).json({
+      error: { code: "INVALID_JSON", message: "The request body must be valid JSON" },
+    });
+  }
+  if (error?.type === "entity.too.large") {
+    return res.status(413).json({
+      error: { code: "PAYLOAD_TOO_LARGE", message: "The request body is too large" },
+    });
+  }
+  return res.status(500).json({
+    error: { code: "INTERNAL_ERROR", message: "An unexpected server error occurred" },
+  });
+});
+
+module.exports = { app, server, io, sendLotSnapshot, buildLotSnapshot };

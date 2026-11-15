@@ -10,7 +10,20 @@ export const apiMode = typeof __API_MODE__ === "undefined" ? "mock" : __API_MODE
 
 const useReal = apiMode === "real";
 
-export const api = useReal ? createHttpApi({ onUnauthorized: clearSession }) : mockApi;
+function handleUnauthorized() {
+  clearSession();
+  if (
+    typeof window !== "undefined" &&
+    window.location?.pathname !== "/login" &&
+    typeof window.location?.assign === "function"
+  ) {
+    window.location.assign("/login");
+  }
+}
+
+export const api = useReal
+  ? createHttpApi({ onUnauthorized: handleUnauthorized })
+  : mockApi;
 export const realtime = createRealtimeHub(
   useReal ? createSocketConnection() : mockApi.realtime.connect,
 );

@@ -24,4 +24,10 @@ export default defineConfig([
       globals: globals.jest,
     },
   },
+  {
+    files: ["vite.config.js", "babel.config.cjs", "jest.config.cjs"],
+    languageOptions: {
+      globals: globals.node,
+    },
+  },
 ]);

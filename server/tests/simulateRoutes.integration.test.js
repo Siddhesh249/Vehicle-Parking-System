@@ -9,8 +9,8 @@
 const mongoose = require("mongoose");
 const request = require("supertest");
 const { MongoMemoryServer } = require("mongodb-memory-server");
-const { app } = require("../../app");
-const Spot = require("../../models/Spot");
+const { app } = require("../app");
+const Spot = require("../models/Spot");
 
 jest.setTimeout(30000);
 

@@ -5,6 +5,13 @@ const Spot = require("../models/Spot");
 const { calculateFareDetails } = require("./fareService");
 const { getFareConfig } = require("./fareConfigService");
 const { writeAuditEntry } = require("./auditService");
+const { getOverstayThresholdHours } = require("./overstayConfigService");
+const { roundMoney } = require("../utils/money");
+const {
+  realMillisecondsForSimulatedHours,
+  simulatedHoursBetween,
+  simulatedSecondsBetween,
+} = require("../utils/simulatedTime");
 
 const OBJECT_ID_PATTERN = /^[0-9a-f]{24}$/i;
 
@@ -35,8 +42,76 @@ async function findActiveTransaction(vehicleId) {
   return transaction;
 }
 
-function secondsBetween(start, end) {
-  return (new Date(end).getTime() - new Date(start).getTime()) / 1000;
+function alertFor(transaction, now, thresholdHours) {
+  const durationHours = simulatedHoursBetween(transaction.entryTimestamp, now);
+  return {
+    vehicleId: String(transaction._id),
+    ticketId: transaction.ticketId,
+    plateNumber: transaction.plateNumber,
+    vehicleType: transaction.vehicleType,
+    gateId: transaction.entryGateId,
+    entryTimestamp: transaction.entryTimestamp,
+    duration: durationHours * 3600,
+    durationHours,
+    isOverstay: Boolean(transaction.isOverstay) || durationHours >= thresholdHours,
+  };
+}
+
+/**
+ * Find every active transaction that has crossed the configured overstay
+ * threshold, or was explicitly flagged by an operator (VPS-F-040). This is a
+ * read-only view used by the admin dashboard and its periodic refresh.
+ */
+async function listOverstays({ now = new Date(), thresholdHours } = {}) {
+  const effectiveThreshold =
+    thresholdHours === undefined
+      ? await getOverstayThresholdHours()
+      : Number(thresholdHours);
+  const cutoff = new Date(
+    now.getTime() - realMillisecondsForSimulatedHours(effectiveThreshold),
+  );
+  const transactions = await Transaction.find({
+    status: "active",
+    parkingEndTimestamp: null,
+    $or: [{ isOverstay: true }, { entryTimestamp: { $lte: cutoff } }],
+  }).sort({ entryTimestamp: 1 });
+
+  return transactions.map((transaction) => ({
+    ...alertFor(transaction, now, effectiveThreshold),
+    autoFlagged: !transaction.isOverstay,
+  }));
+}
+
+/**
+ * Mark newly overstaying vehicles in MongoDB and return one alert per vehicle.
+ * Called by the server's background scanner; returning only the newly flagged
+ * rows keeps Socket.io notifications from repeating on every scan.
+ */
+async function scanOverstays({ now = new Date(), thresholdHours } = {}) {
+  const effectiveThreshold =
+    thresholdHours === undefined
+      ? await getOverstayThresholdHours()
+      : Number(thresholdHours);
+  const cutoff = new Date(
+    now.getTime() - realMillisecondsForSimulatedHours(effectiveThreshold),
+  );
+  const candidates = await Transaction.find({
+    status: "active",
+    parkingEndTimestamp: null,
+    isOverstay: false,
+    entryTimestamp: { $lte: cutoff },
+  });
+
+  const newlyFlagged = [];
+  for (const candidate of candidates) {
+    const flagged = await Transaction.findOneAndUpdate(
+      { _id: candidate._id, status: "active", isOverstay: false },
+      { $set: { isOverstay: true } },
+      { returnDocument: "after" },
+    );
+    if (flagged) newlyFlagged.push(alertFor(flagged, now, effectiveThreshold));
+  }
+  return newlyFlagged;
 }
 
 /** Flag an overstaying vehicle and record the gate's notification (VPS-F-040, VPS-F-041). */
@@ -48,7 +123,8 @@ async function notifyOverstay({ vehicleId, gateId, operator, now = new Date() })
     { $set: { isOverstay: true } },
   );
 
-  const durationSeconds = secondsBetween(transaction.entryTimestamp, now);
+  const durationSeconds = simulatedSecondsBetween(transaction.entryTimestamp, now);
+  const durationHours = durationSeconds / 3600;
   const entry = await writeAuditEntry({
     action: "OVERSTAY_FLAGGED",
     actorId: operator.userId,
@@ -59,6 +135,7 @@ async function notifyOverstay({ vehicleId, gateId, operator, now = new Date() })
       plateNumber: transaction.plateNumber,
       gateId,
       durationSeconds,
+      durationHours,
     },
   });
 
@@ -69,6 +146,7 @@ async function notifyOverstay({ vehicleId, gateId, operator, now = new Date() })
     plateNumber: transaction.plateNumber,
     gateId,
     durationSeconds,
+    durationHours,
   };
 }
 
@@ -80,11 +158,16 @@ async function notifyOverstay({ vehicleId, gateId, operator, now = new Date() })
 async function forceRelease({ vehicleId, admin, now = new Date() }) {
   const transaction = await findActiveTransaction(vehicleId);
 
-  const durationSeconds = secondsBetween(transaction.entryTimestamp, now);
+  // If the car already left its spot for the exit queue, bill to that moment.
+  const billingEnd = transaction.parkingEndTimestamp
+    ? new Date(transaction.parkingEndTimestamp)
+    : now;
+  const durationSeconds = simulatedSecondsBetween(transaction.entryTimestamp, billingEnd);
+  const durationHours = durationSeconds / 3600;
   const fareConfig = await getFareConfig(transaction.vehicleType);
   const fareDetails = calculateFareDetails(
     transaction.entryTimestamp,
-    now,
+    billingEnd,
     transaction.vehicleType,
     { overstay: true },
     fareConfig,
@@ -95,9 +178,9 @@ async function forceRelease({ vehicleId, admin, now = new Date() }) {
     {
       $set: {
         status: "completed",
-        exitTimestamp: now,
+        exitTimestamp: billingEnd,
         durationSeconds,
-        fare: fareDetails.total,
+        fare: roundMoney(fareDetails.total),
         penaltyApplied: true,
         isOverstay: true,
       },
@@ -110,13 +193,21 @@ async function forceRelease({ vehicleId, admin, now = new Date() }) {
 
   try {
     await Spot.findOneAndUpdate(
-      { _id: settled.spotId, status: "reserved" },
+      {
+        _id: settled.spotId,
+        status: "reserved",
+        $or: [{ currentTransactionId: settled._id }, { currentTransactionId: null }],
+      },
       { $set: { status: "free", currentTransactionId: null } },
       { returnDocument: "after" },
     );
   } catch (error) {
     await Transaction.findOneAndUpdate(
-      { _id: settled._id, status: "completed", exitTimestamp: now },
+      {
+        _id: settled._id,
+        status: "completed",
+        exitTimestamp: billingEnd,
+      },
       {
         $set: { status: "active", penaltyApplied: false },
         $unset: { exitTimestamp: 1, durationSeconds: 1, fare: 1 },
@@ -135,6 +226,7 @@ async function forceRelease({ vehicleId, admin, now = new Date() }) {
       ticketId: settled.ticketId,
       spotId: String(settled.spotId),
       fare: fareDetails.total,
+      durationHours,
     },
   });
 
@@ -144,12 +236,13 @@ async function forceRelease({ vehicleId, admin, now = new Date() }) {
     ticketId: settled.ticketId,
     plateNumber: settled.plateNumber,
     durationSeconds,
-    fare: fareDetails.total,
+    durationHours,
+    fare: roundMoney(fareDetails.total),
     breakdown: {
-      baseFare: fareDetails.baseFare,
+      baseFare: roundMoney(fareDetails.baseFare),
       overstayPenalty: fareDetails.overstayPenalty,
     },
   };
 }
 
-module.exports = { notifyOverstay, forceRelease };
+module.exports = { notifyOverstay, forceRelease, listOverstays, scanOverstays };
