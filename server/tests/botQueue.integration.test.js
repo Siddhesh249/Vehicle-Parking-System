@@ -7,16 +7,16 @@
 const mongoose = require("mongoose");
 const request = require("supertest");
 const { MongoMemoryServer } = require("mongodb-memory-server");
-const { app } = require("../../app");
-const Spot = require("../../models/Spot");
-const Transaction = require("../../models/Transaction");
-const User = require("../../models/User");
-const { signToken } = require("../../utils/jwtUtils");
+const { app } = require("../app");
+const Spot = require("../models/Spot");
+const Transaction = require("../models/Transaction");
+const User = require("../models/User");
+const { signToken } = require("../utils/jwtUtils");
 const {
   startSimulation,
   stopSimulation,
   resetSimulationForTests,
-} = require("../../services/simulationService");
+} = require("../services/simulationService");
 
 jest.setTimeout(30000);
 

@@ -3,12 +3,12 @@
 
 const mongoose = require("mongoose");
 const { MongoMemoryServer } = require("mongodb-memory-server");
-const User = require("../../models/User");
-const Spot = require("../../models/Spot");
-const Transaction = require("../../models/Transaction");
-const AuditLog = require("../../models/AuditLog");
-const { getOccupancy, getRevenue } = require("../../services/analyticsService");
-const { seedDatabase, DEMO_ACTIVE_ENTRIES, DEMO_DAILY_SCALES } = require("../../seed");
+const User = require("../models/User");
+const Spot = require("../models/Spot");
+const Transaction = require("../models/Transaction");
+const AuditLog = require("../models/AuditLog");
+const { getOccupancy, getRevenue } = require("../services/analyticsService");
+const { seedDatabase, DEMO_ACTIVE_ENTRIES, DEMO_DAILY_SCALES } = require("../seed");
 
 jest.setTimeout(60000);
 

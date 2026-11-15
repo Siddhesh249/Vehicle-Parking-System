@@ -6,15 +6,15 @@
 
 const mongoose = require("mongoose");
 const { MongoMemoryServer } = require("mongodb-memory-server");
-const Spot = require("../../models/Spot");
-const Transaction = require("../../models/Transaction");
-const { processExit, quoteExit } = require("../../services/fareExitService");
-const { listOverstays } = require("../../services/overstayService");
+const Spot = require("../models/Spot");
+const Transaction = require("../models/Transaction");
+const { processExit, quoteExit } = require("../services/fareExitService");
+const { listOverstays } = require("../services/overstayService");
 const {
   adoptDemoParkedCars,
   getSimulationState,
   resetSimulationForTests,
-} = require("../../services/simulationService");
+} = require("../services/simulationService");
 
 jest.setTimeout(30000);
 

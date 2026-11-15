@@ -1,9 +1,9 @@
 "use strict";
 
-const simulationService = require("../../services/simulationService");
-const { allocateSpot } = require("../../services/allocationService");
+const simulationService = require("../services/simulationService");
+const { allocateSpot } = require("../services/allocationService");
 
-jest.mock("../../services/allocationService", () => ({ allocateSpot: jest.fn() }));
+jest.mock("../services/allocationService", () => ({ allocateSpot: jest.fn() }));
 
 describe("Sprint 4 T2 simulation backend", () => {
   afterEach(() => {
