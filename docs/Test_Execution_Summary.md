@@ -3,7 +3,7 @@
 **Project:** Vehicle Parking System (Group 14)  
 **Sprint:** 4 — Hardening, Simulation Console & Load Test  
 **Report owner:** Siddhesh (S4-T5)  
-**Last updated:** 2026-11-14
+**Last updated:** 2026-11-15
 
 ## 1. Execution environment
 
@@ -11,6 +11,8 @@
 - Server tests: Jest, Supertest and MongoDB service / MongoDB Memory Server
 - Client tests: Jest and React Testing Library
 - Load test: Grafana k6
+- API-level checks: Supertest integration tests inside Jest; no separate manual API client or saved collection is used
+- Documentation sources: LibreOffice ODT files in `DOCS/editable formats/`, exported to PDF with `scripts/build_docs.py`
 - CI workflow: `.github/workflows/ci.yml`
 
 ## 2. Sprint 4 task status

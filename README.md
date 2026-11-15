@@ -402,6 +402,7 @@ Never commit `.env` files or real credentials; both are git-ignored.
 ├── server/             # Express + Mongoose + Socket.io API, seed script, Jest tests
 ├── loadtest/           # k6 concurrent-allocation scenario
 ├── DOCS/               # SRS, SAD, STP, sprint plan, git workflow, test execution summary
+│   └── editable formats/  # ODT sources, PDF build script and document notes
 └── package.json        # root scripts: start, check, doctor, test, format
 ```
 
@@ -450,8 +451,12 @@ The load test is optional: when k6 is not installed it is skipped with a note (i
 passes). The server test suite uses an isolated `<MONGO_DB>_test` database and falls back to an
 automatically managed MongoDB (`mongodb-memory-server`) when no local server is reachable, so the
 suite is self-contained. The k6 scenario runs against an isolated `vehicle_parking_loadtest`
-database and fails if two vehicles ever receive the same spot.
+database and fails if two vehicles ever receive the same spot. API-level coverage is entirely
+code-based: Supertest integration tests run inside Jest, and no separate API client or saved
+collection is part of the repository or CI.
 
 Docs in [`DOCS/`](DOCS): requirement specification (SRS), architecture and design (SAD), test plan
 (STP), sprint plan, required software tools, git workflow, commit strategy, the evaluator and
-student handouts, and the final [test execution summary](DOCS/Test_Execution_Summary.md).
+student handouts, and the final [test execution summary](DOCS/Test_Execution_Summary.md). The
+editable ODT sources and the PDF build script live in
+[DOCS/editable formats](DOCS/editable%20formats/README.md).
