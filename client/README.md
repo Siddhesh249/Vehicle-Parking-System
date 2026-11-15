@@ -17,8 +17,8 @@ Run the app at the route for a console, such as `/entry-1` or `/admin`.
 Opening `/` or `/login` shows the sign-in page first; demo buttons pre-fill each
 gate account, but the credentials still go through the normal login API.
 The Simulation Console is at `/dev/simulate` and is intentionally absent from
-the role navigation. It is also compiled out of production builds; `./run.sh`
-opens it in a second tab during local demos.
+the role navigation. It is also compiled out of production builds; `npm start`
+from the repository root opens it in a second tab during local demos.
 
 ## Talking to the backend
 
@@ -28,7 +28,7 @@ the real API and live Socket.io updates:
 1. Start MongoDB and the server (`server/README.md`) so it listens on `127.0.0.1:5000`.
 2. Seed the demo accounts and initial spots with `npm --prefix server run seed`.
 3. Set `VITE_API_MODE=real` in `client/.env`, or start through the repository
-   root launcher (`./run.sh`) which sets it for you.
+   root launcher (`npm start`) which sets it for you.
 4. Open the app and sign in as `entry1`, `entry2`, `exit1`, `exit2`, or
    `admin`. The demo buttons fill the local seed credentials (`password123`
    unless `SEED_PASSWORD` / `VITE_DEMO_PASSWORD` was set).
@@ -67,7 +67,7 @@ When a bot's intended stay ends it frees its spot, moves to an exit gate and its
 billing clock stops; the exit operator scans the ticket (or handles a lost
 ticket), sees the frozen fare quote, and presses **Payment collected**. The
 consoles poll their gate queue every 1.5 seconds, so all five tabs stay in sync
-during the demo. `./run.sh` reseeds a clean demo state on each launch, so revenue
+during the demo. `npm start` reseeds a clean demo state on each launch, so revenue
 and overstays do not carry over from a previous session. The six seeded parked
 cars also head to an exit gate 5–20 seconds after the server starts.
 

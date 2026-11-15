@@ -10,7 +10,7 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     // 'real' talks to the backend, anything else uses the in-memory mock (see client/README.md).
-    // The process environment wins so run.sh can switch modes without writing a .env file.
+    // The process environment wins so the launcher can switch modes without writing a .env file.
     define: {
       __API_MODE__: JSON.stringify(apiMode === "real" ? "real" : "mock"),
       // Production builds must not render the developer tool, even by direct URL.

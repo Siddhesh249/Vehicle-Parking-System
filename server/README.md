@@ -97,7 +97,7 @@ completed sessions for the revenue and occupancy charts, and audit history. The 
 `SEED_PASSWORD` is set; the script is idempotent. Set `SEED_DEMO_DATA=false` to
 seed only accounts/spots, which the isolated k6 database does. Set
 `SEED_RESET_DEMO=true` to clear operational collections, fare/system config and
-recreate the clean demo lot; `run.sh` does this by default so revenue and
+recreate the clean demo lot; `npm start` does this by default so revenue and
 overstay flags do not carry over between demo sessions. The server adopts the
 seeded parked cars into the demo fleet on startup, so they head to an exit gate
 within 5–20 seconds and their spots become available again.
@@ -110,7 +110,7 @@ npm run dev        # node --watch index.js
 npm test           # Jest + Supertest
 ```
 
-From the repository root, `./run.sh` starts the complete app and `./test.sh`
+From the repository root, `npm start` starts the complete app and `npm run check`
 runs every check including the k6 concurrency test. The server Jest config loads
 `server/.env` and connects to `<MONGO_DB>_test`, keeping test writes away from
 the application database. If no local MongoDB is reachable, the test harness

@@ -5,7 +5,7 @@ import "./Console.css";
 
 // Local demo accounts. The quick-fill buttons only populate the form; the
 // credentials still travel through the normal login API (bcrypt + JWT).
-// run.sh injects the seeded password; the fallback matches the default seed.
+// `npm start` injects the seeded password; the fallback matches the default seed.
 const DEMO_PASSWORD =
   typeof __DEMO_PASSWORD__ === "undefined" ? "password123" : __DEMO_PASSWORD__;
 

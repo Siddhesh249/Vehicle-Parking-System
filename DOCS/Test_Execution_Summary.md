@@ -48,7 +48,7 @@ Source: GitHub Actions run [41316712137](https://github.com/Siddhesh249/Vehicle-
 
 ## 4. Final verification on `feat/sprint4-final-completion`
 
-Run locally on 2026-11-14 through `bash test.sh` (formatting, server tests, client tests, lint, production build and k6).
+Run locally on 2026-11-14 through `npm run check` (formatting, server tests, client tests, lint, production build and k6).
 
 ### Formatting, lint and build
 
@@ -76,7 +76,7 @@ Run locally on 2026-11-14 through `bash test.sh` (formatting, server tests, clie
 - Parking time and billing stop when a car joins the exit queue, the freed spot
   can be reused immediately, and the admin database access is covered by
   `parkingEnd.integration.test.js` and `botQueue.integration.test.js`.
-- `run.sh` resets operational demo data before seeding, so revenue and overstay
+- `npm start` resets operational demo data before seeding, so revenue and overstay
   flags start from a clean average state.
 
 ### k6 — S4-T1 concurrent allocation

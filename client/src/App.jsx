@@ -66,7 +66,7 @@ function App() {
 
   const currentConsole = consoles.find(({ path: consolePath }) => consolePath === path);
   const isLogin = path === "/login" || path === "/";
-  // Developer-only: reachable by typing the address or via run.sh, never linked from a role console (VPS-DEV-003).
+  // Developer-only: reachable by typing the address or via `npm start`, never linked from a role console (VPS-DEV-003).
   const isSimulation = path === "/dev/simulate" && !isProduction;
   const canUseConsole =
     !isReal ||
