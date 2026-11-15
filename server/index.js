@@ -4,6 +4,7 @@ const mongoose = require("mongoose");
 const { server, io, buildLotSnapshot } = require("./app");
 const { getMongoUri } = require("./utils/database");
 const { scanOverstays } = require("./services/overstayService");
+const { adoptDemoParkedCars } = require("./services/simulationService");
 
 const OVERSTAY_SCAN_INTERVAL_MS = Number(process.env.OVERSTAY_SCAN_INTERVAL_MS) || 5000;
 let overstayTimer = null;
@@ -63,6 +64,13 @@ async function start() {
   }
   await mongoose.connect(getMongoUri());
   console.log("Connected to MongoDB");
+
+  // The seed leaves a few cars parked. Hand them to the demo fleet so they
+  // drive to an exit gate 5–20 seconds after startup.
+  const adopted = await adoptDemoParkedCars();
+  if (adopted.adopted) {
+    console.log(`Adopted ${adopted.adopted} seeded cars into the demo exit queue.`);
+  }
 
   const serverPort = Number(process.env.PORT) || 5000;
 

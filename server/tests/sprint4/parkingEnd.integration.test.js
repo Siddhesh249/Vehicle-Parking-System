@@ -10,6 +10,11 @@ const Spot = require("../../models/Spot");
 const Transaction = require("../../models/Transaction");
 const { processExit, quoteExit } = require("../../services/fareExitService");
 const { listOverstays } = require("../../services/overstayService");
+const {
+  adoptDemoParkedCars,
+  getSimulationState,
+  resetSimulationForTests,
+} = require("../../services/simulationService");
 
 jest.setTimeout(30000);
 
@@ -24,6 +29,11 @@ describe("parking ends when the car joins the exit queue", () => {
 
   beforeEach(async () => {
     await mongoose.connection.dropDatabase();
+    resetSimulationForTests();
+  });
+
+  afterEach(() => {
+    resetSimulationForTests();
   });
 
   afterAll(async () => {
@@ -116,5 +126,45 @@ describe("parking ends when the car joins the exit queue", () => {
 
     const overstays = await listOverstays();
     expect(overstays.find((row) => row.plateNumber === "KA20CAP003")).toBeUndefined();
+  });
+
+  test("seeded parked cars join the bot fleet and head to an exit within seconds", async () => {
+    const spot = await Spot.create({
+      spotNumber: "4W-DEMO",
+      zone: "4W",
+      status: "reserved",
+    });
+    const transaction = await Transaction.create({
+      ticketId: "TKT-DEMO-1001",
+      plateNumber: "KA20DEMO01",
+      vehicleType: "4W",
+      spotId: spot._id,
+      entryGateId: "Entry-1",
+      entryOperatorId: operatorId,
+      entryTimestamp: new Date(Date.now() - 15000),
+      status: "active",
+    });
+    await Spot.updateOne(
+      { _id: spot._id },
+      { $set: { currentTransactionId: transaction._id } },
+    );
+
+    const adopted = await adoptDemoParkedCars({ minSeconds: 0.01, maxSeconds: 0.02 });
+    expect(adopted.adopted).toBe(1);
+    expect(getSimulationState()).toEqual(
+      expect.objectContaining({ parked: 1, waitingExit: 0 }),
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(getSimulationState()).toEqual(
+      expect.objectContaining({ parked: 0, waitingExit: 1 }),
+    );
+    // Promotion releases the spot with a background write.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const settledSpot = await Spot.findById(spot._id).lean();
+    expect(settledSpot.status).toBe("free");
+    const parkedTransaction = await Transaction.findById(transaction._id).lean();
+    expect(parkedTransaction.parkingEndTimestamp).toBeInstanceOf(Date);
   });
 });

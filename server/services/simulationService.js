@@ -198,6 +198,8 @@ function runTick() {
     lastTickAt = running ? now : null;
     promoteParkedBots();
     pruneCompleted();
+    // Startup-adopted demo cars only need the timer until they head to an exit.
+    if (!running && !hasParkedBots()) stopTimer();
   } finally {
     tickInProgress = false;
   }
@@ -290,6 +292,10 @@ function hasLiveBots() {
       bot.status === "parked" ||
       bot.status === "waiting_exit",
   );
+}
+
+function hasParkedBots() {
+  return [...bots.values()].some((bot) => bot.status === "parked");
 }
 
 function getSimulationState() {
@@ -552,6 +558,48 @@ function resetSimulationForTests() {
   fareOverrides.clear();
 }
 
+/**
+ * Adopt the cars that the seed left parked, so a fresh demo is alive before the
+ * traffic generator is started. Each one heads to an exit gate within 5–20s.
+ */
+async function adoptDemoParkedCars({ minSeconds = 5, maxSeconds = 20 } = {}) {
+  if (mongoose.connection.readyState !== 1) return { adopted: 0 };
+  const transactions = await Transaction.find({
+    status: "active",
+    parkingEndTimestamp: null,
+    ticketId: /^TKT-DEMO-1/,
+  }).lean();
+
+  const now = Date.now();
+  let adopted = 0;
+  for (const transaction of transactions) {
+    const id = `demo-${transaction._id}`;
+    if (bots.has(id)) continue;
+    bots.set(id, {
+      id,
+      plateNumber: transaction.plateNumber,
+      vehicleType: transaction.vehicleType,
+      entryGateId: transaction.entryGateId,
+      status: "parked",
+      arrivedAt: new Date(transaction.entryTimestamp).getTime(),
+      intendedStayHours:
+        Math.round(
+          simulatedHoursBetween(transaction.entryTimestamp, new Date(now)) * 100,
+        ) / 100,
+      lostTicket: false,
+      ticketId: transaction.ticketId,
+      transactionId: String(transaction._id),
+      spotId: String(transaction.spotId),
+      entryTimestamp: transaction.entryTimestamp,
+      exitAtMs: now + (minSeconds + Math.random() * (maxSeconds - minSeconds)) * 1000,
+    });
+    adopted += 1;
+  }
+
+  if (adopted) ensureTimer();
+  return { adopted };
+}
+
 module.exports = {
   startSimulation,
   setSimulationRate,
@@ -565,6 +613,7 @@ module.exports = {
   findBotExitTime,
   markBotSettled,
   setPromotionListener,
+  adoptDemoParkedCars,
   setFareOverride,
   getFareOverride,
   clearFareOverrides,

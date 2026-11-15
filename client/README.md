@@ -68,7 +68,8 @@ billing clock stops; the exit operator scans the ticket (or handles a lost
 ticket), sees the frozen fare quote, and presses **Payment collected**. The
 consoles poll their gate queue every 1.5 seconds, so all five tabs stay in sync
 during the demo. `./run.sh` reseeds a clean demo state on each launch, so revenue
-and overstays do not carry over from a previous session.
+and overstays do not carry over from a previous session. The six seeded parked
+cars also head to an exit gate 5–20 seconds after the server starts.
 
 The Admin dashboard also has a raw **Database** panel: pick a collection tab to
 see every column, with rows scrolling inside a fixed-height table.

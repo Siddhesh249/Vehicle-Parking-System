@@ -98,7 +98,9 @@ completed sessions for the revenue and occupancy charts, and audit history. The 
 seed only accounts/spots, which the isolated k6 database does. Set
 `SEED_RESET_DEMO=true` to clear operational collections, fare/system config and
 recreate the clean demo lot; `run.sh` does this by default so revenue and
-overstay flags do not carry over between demo sessions.
+overstay flags do not carry over between demo sessions. The server adopts the
+seeded parked cars into the demo fleet on startup, so they head to an exit gate
+within 5–20 seconds and their spots become available again.
 
 ## Running and tests
 

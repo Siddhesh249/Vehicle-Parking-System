@@ -88,7 +88,8 @@ const DEMO_OCCUPANCY_PATTERN = [
   8, 7, 6, 5, 5, 7, 9, 11, 13, 15, 16, 15, 13, 14, 16, 16, 15, 14, 12, 11, 10, 9, 9, 8,
 ];
 // Oldest first; lower scales on quieter days keep the bars varied.
-const DEMO_DAILY_SCALES = [0.92, 1.0, 0.84, 1.0, 0.92, 1.0, 1.0];
+// Oldest first; today's scale is lower because the seed only reaches "now".
+const DEMO_DAILY_SCALES = [0.92, 1.0, 0.84, 1.0, 0.92, 1.0, 0.4];
 
 const round2 = (value) => Math.round(value * 100) / 100;
 

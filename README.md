@@ -30,7 +30,7 @@ The app opens at **http://localhost:5173**. The API listens on **http://127.0.0.
 | exit2   | Gate operator | Exit-2  | `password123` |
 | admin   | Admin         | —       | `password123` |
 
-Set `SEED_PASSWORD` before seeding to use a different local demo password. The seed is idempotent and safe to re-run. `./run.sh` starts from a clean demo state (`SEED_RESET_DEMO=true`), so parked cars, revenue and overstay flags are not carried over from a previous session; set `SEED_RESET_DEMO=false` to keep data between launches.
+Set `SEED_PASSWORD` before seeding to use a different local demo password. The seed is idempotent and safe to re-run. `./run.sh` starts from a clean demo state (`SEED_RESET_DEMO=true`), so parked cars, revenue and overstay flags are not carried over from a previous session; set `SEED_RESET_DEMO=false` to keep data between launches. The six seeded parked cars join the demo fleet at startup and head to an exit gate within 5–20 seconds.
 
 The app opens on the sign-in page. Demo-account buttons pre-fill the username and password for the selected role; the credentials still go through the normal bcrypt + JWT login. Each browser tab keeps its own session, so the five-tab demo works without signing in again.
 
