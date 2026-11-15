@@ -151,7 +151,7 @@ describe("Sprint 4 — admin configuration and overstay feed", () => {
 
     expect(initial.body).toEqual(
       expect.objectContaining({
-        thresholdHours: 8,
+        thresholdHours: 24,
         minimumHours: 6,
       }),
     );
@@ -165,10 +165,10 @@ describe("Sprint 4 — admin configuration and overstay feed", () => {
     const updated = await request(app)
       .put("/api/admin/config/overstay")
       .set(auth(adminToken()))
-      .send({ thresholdHours: 10 })
+      .send({ thresholdHours: 30 })
       .expect(200);
     expect(updated.body).toEqual(
-      expect.objectContaining({ updated: true, thresholdHours: 10 }),
+      expect.objectContaining({ updated: true, thresholdHours: 30 }),
     );
   });
 
@@ -227,7 +227,7 @@ describe("Sprint 4 — admin configuration and overstay feed", () => {
       spotId: spot._id,
       entryGateId: "Entry-1",
       entryOperatorId: OPERATOR_ID,
-      entryTimestamp: new Date(Date.now() - 8.5 * 5 * 1000),
+      entryTimestamp: new Date(Date.now() - 25.5 * 5 * 1000),
       status: "active",
     });
 
@@ -240,7 +240,7 @@ describe("Sprint 4 — admin configuration and overstay feed", () => {
       realSecondsPerHour: 5,
       hoursPerRealSecond: 0.2,
     });
-    expect(response.body.overstayThresholdHours).toBe(8);
+    expect(response.body.overstayThresholdHours).toBe(24);
     expect(
       response.body.spots.find((candidate) => candidate.id === String(spot._id)),
     ).toEqual(
@@ -250,7 +250,7 @@ describe("Sprint 4 — admin configuration and overstay feed", () => {
           transactionId: String(transaction._id),
           ticketId: "TKT-LOT-TIMER",
           plateNumber: "KA11TIME01",
-          durationHours: expect.closeTo(8.5, 1),
+          durationHours: expect.closeTo(25.5, 1),
           isOverstay: true,
         }),
       }),

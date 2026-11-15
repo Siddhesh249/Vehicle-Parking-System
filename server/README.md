@@ -76,7 +76,7 @@ tables are configured.
 ## Overstay detection
 
 The Admin configures the overstay threshold in hours (`GET/PUT
-/api/admin/config/overstay`). The default is 8 simulated hours (40 real seconds
+/api/admin/config/overstay`). The default is 24 simulated hours (2 real minutes
 on the demo clock). It must be at least the highest fare-tier
 threshold, and the same rule is enforced when fare tiers are edited. Active
 transactions are automatically flagged once that simulated duration has
@@ -91,8 +91,8 @@ overstay penalty.
 Run `npm run seed` once against the configured database. It creates the four fixed gate
 accounts (`entry1`, `entry2`, `exit1`, `exit2`), the `admin` account, the initial
 6 two-wheeler / 10 four-wheeler spots, and sample activity: six active vehicles
-with live timers (all below the 8-hour overstay threshold at launch), completed
-transactions for the revenue chart, and audit history. The local password is
+with live timers (all below the 24-hour overstay threshold at launch), a week of
+completed sessions for the revenue and occupancy charts, and audit history. The local password is
 `password123` unless
 `SEED_PASSWORD` is set; the script is idempotent. Set `SEED_DEMO_DATA=false` to
 seed only accounts/spots, which the isolated k6 database does. Set

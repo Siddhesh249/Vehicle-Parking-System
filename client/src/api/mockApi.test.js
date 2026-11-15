@@ -92,14 +92,14 @@ describe("mock API (SAD 4.3 shapes)", () => {
     const api = createMockApi({ delayMs: 0 });
 
     expect(await api.getOverstayConfig()).toEqual(
-      expect.objectContaining({ thresholdHours: 8, minimumHours: 6 }),
+      expect.objectContaining({ thresholdHours: 24, minimumHours: 6 }),
     );
     await expect(api.updateOverstayConfig({ thresholdHours: 5 })).rejects.toMatchObject({
       status: 400,
       code: "INVALID_OVERSTAY_THRESHOLD",
     });
-    await expect(api.updateOverstayConfig({ thresholdHours: 8 })).resolves.toEqual(
-      expect.objectContaining({ thresholdHours: 8 }),
+    await expect(api.updateOverstayConfig({ thresholdHours: 30 })).resolves.toEqual(
+      expect.objectContaining({ thresholdHours: 30 }),
     );
   });
 

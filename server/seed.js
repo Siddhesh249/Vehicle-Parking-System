@@ -82,80 +82,101 @@ const DEMO_ACTIVE_ENTRIES = [
   },
 ];
 
-const DEMO_COMPLETED_ENTRIES = [
-  {
-    ticketId: "TKT-DEMO-2001",
-    plateNumber: "KA05DEMO01",
-    vehicleType: "4W",
-    entryGateId: "Entry-1",
-    exitGateId: "Exit-1",
-    entryOperator: "entry1",
-    exitOperator: "exit1",
-    daysAgo: 6,
-    durationHours: 3.5,
-    lostTicket: false,
-  },
-  {
-    ticketId: "TKT-DEMO-2002",
-    plateNumber: "KA06DEMO02",
-    vehicleType: "2W",
-    entryGateId: "Entry-2",
-    exitGateId: "Exit-2",
-    entryOperator: "entry2",
-    exitOperator: "exit2",
-    daysAgo: 5,
-    durationHours: 4.5,
-    lostTicket: true,
-  },
-  {
-    ticketId: "TKT-DEMO-2003",
-    plateNumber: "KA07DEMO03",
-    vehicleType: "4W",
-    entryGateId: "Entry-1",
-    exitGateId: "Exit-2",
-    entryOperator: "entry1",
-    exitOperator: "exit2",
-    daysAgo: 4,
-    durationHours: 7.2,
-    lostTicket: false,
-  },
-  {
-    ticketId: "TKT-DEMO-2004",
-    plateNumber: "KA08DEMO04",
-    vehicleType: "2W",
-    entryGateId: "Entry-2",
-    exitGateId: "Exit-1",
-    entryOperator: "entry2",
-    exitOperator: "exit1",
-    daysAgo: 3,
-    durationHours: 2.4,
-    lostTicket: false,
-  },
-  {
-    ticketId: "TKT-DEMO-2005",
-    plateNumber: "KA09DEMO05",
-    vehicleType: "4W",
-    entryGateId: "Entry-1",
-    exitGateId: "Exit-1",
-    entryOperator: "entry1",
-    exitOperator: "exit1",
-    daysAgo: 1,
-    durationHours: 5.6,
-    lostTicket: false,
-  },
-  {
-    ticketId: "TKT-DEMO-2006",
-    plateNumber: "KA10DEMO06",
-    vehicleType: "2W",
-    entryGateId: "Entry-2",
-    exitGateId: "Exit-2",
-    entryOperator: "entry2",
-    exitOperator: "exit2",
-    daysAgo: 0,
-    durationHours: 1.8,
-    lostTicket: true,
-  },
+// A realistic day of lot occupancy by hour (0-23), scaled per sample day.
+// Peaks stay below the 16-spot capacity so history never reads over 100%.
+const DEMO_OCCUPANCY_PATTERN = [
+  8, 7, 6, 5, 5, 7, 9, 11, 13, 15, 16, 15, 13, 14, 16, 16, 15, 14, 12, 11, 10, 9, 9, 8,
 ];
+// Oldest first; lower scales on quieter days keep the bars varied.
+const DEMO_DAILY_SCALES = [0.92, 1.0, 0.84, 1.0, 0.92, 1.0, 1.0];
+
+const round2 = (value) => Math.round(value * 100) / 100;
+
+// Small deterministic PRNG so each seed produces the same shape of history.
+function createRandom(seed = 20261115) {
+  let state = seed >>> 0;
+  return () => {
+    state += 0x6d2b79f5;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * Build a believable week of completed parking sessions. A minute-by-minute
+ * simulation keeps occupancy under the lot capacity, while entry/exit times and
+ * fares vary enough for both admin charts to look like real operations.
+ */
+function buildCompletedDemoEntries(now) {
+  const random = createRandom();
+  const entries = [];
+  let index = 0;
+
+  DEMO_DAILY_SCALES.forEach((scale, dayIndex) => {
+    const daysAgo = DEMO_DAILY_SCALES.length - 1 - dayIndex;
+    const dayStart = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - daysAgo),
+    );
+    const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+    const maxExit = daysAgo === 0 ? new Date(now.getTime() - 60 * 1000) : dayEnd;
+    if (maxExit <= dayStart) return;
+
+    const active = [];
+    for (let minute = 0; minute < 24 * 60; minute += 1) {
+      const at = dayStart.getTime() + minute * 60 * 1000;
+      if (at >= maxExit.getTime()) break;
+
+      for (let i = active.length - 1; i >= 0; i -= 1) {
+        if (active[i] <= at) active.splice(i, 1);
+      }
+
+      const hour = Math.floor(minute / 60);
+      const desired = Math.max(0, Math.round(DEMO_OCCUPANCY_PATTERN[hour] * scale));
+      if (active.length >= desired) continue;
+      // Turn cars over gradually instead of filling every empty slot at once.
+      if (random() > 0.055) continue;
+
+      const targetDuration = 7 + random() * 6;
+      const exitMs = Math.min(at + targetDuration * 60 * 60 * 1000, maxExit.getTime());
+      const durationHours = round2((exitMs - at) / (60 * 60 * 1000));
+      if (durationHours < 2) continue;
+
+      const vehicleType = random() < 0.58 ? "4W" : "2W";
+      const lostTicket = random() < 0.08;
+      const fareEntry = new Date(
+        exitMs - realMillisecondsForSimulatedHours(durationHours),
+      );
+      const fare = roundMoney(
+        calculateFare(fareEntry, new Date(exitMs), vehicleType, { lostTicket }),
+      );
+      const entryGateId = random() < 0.5 ? "Entry-1" : "Entry-2";
+      const exitGateId = random() < 0.5 ? "Exit-1" : "Exit-2";
+      const sequence = index;
+      index += 1;
+      entries.push({
+        ticketId: `TKT-DEMO-H${String(sequence).padStart(4, "0")}`,
+        plateNumber: `KA${String(10 + (sequence % 90)).padStart(2, "0")}HD${String(
+          sequence,
+        ).padStart(3, "0")}`,
+        vehicleType,
+        entryGateId,
+        exitGateId,
+        entryOperator: entryGateId === "Entry-1" ? "entry1" : "entry2",
+        exitOperator: exitGateId === "Exit-1" ? "exit1" : "exit2",
+        entryTimestamp: new Date(at),
+        exitTimestamp: new Date(exitMs),
+        durationHours,
+        fare,
+        lostTicket,
+      });
+      active.push(exitMs);
+    }
+  });
+
+  return entries;
+}
 
 async function ensureSpots(zone, count) {
   const existing = await Spot.find({ zone }, { spotNumber: 1 }).lean();
@@ -218,6 +239,7 @@ async function upsertDemoVehicle(plateNumber, vehicleType) {
 async function seedDemoData(users, now, overstayThresholdHours) {
   let activeCreated = 0;
   let completedCreated = 0;
+  const completedEntries = buildCompletedDemoEntries(now);
 
   for (const demo of DEMO_ACTIVE_ENTRIES) {
     const alreadyParked = await Transaction.findOne({
@@ -255,19 +277,9 @@ async function seedDemoData(users, now, overstayThresholdHours) {
     activeCreated += 1;
   }
 
-  for (const demo of DEMO_COMPLETED_ENTRIES) {
+  for (const demo of completedEntries) {
     const spot = await Spot.findOne({ zone: demo.vehicleType }).lean();
     if (!spot) continue;
-
-    const exitTimestamp = new Date(now.getTime() - demo.daysAgo * 24 * 60 * 60 * 1000);
-    const entryTimestamp = new Date(
-      exitTimestamp.getTime() - realMillisecondsForSimulatedHours(demo.durationHours),
-    );
-    const fare = roundMoney(
-      calculateFare(entryTimestamp, exitTimestamp, demo.vehicleType, {
-        lostTicket: demo.lostTicket,
-      }),
-    );
 
     await upsertDemoVehicle(demo.plateNumber, demo.vehicleType);
     await Transaction.create({
@@ -277,12 +289,12 @@ async function seedDemoData(users, now, overstayThresholdHours) {
       spotId: spot._id,
       entryGateId: demo.entryGateId,
       entryOperatorId: users.get(demo.entryOperator)._id,
-      entryTimestamp,
+      entryTimestamp: demo.entryTimestamp,
       exitGateId: demo.exitGateId,
       exitOperatorId: users.get(demo.exitOperator)._id,
-      exitTimestamp,
+      exitTimestamp: demo.exitTimestamp,
       durationSeconds: demo.durationHours * 3600,
-      fare,
+      fare: demo.fare,
       penaltyApplied: demo.lostTicket,
       status: "completed",
       isOverstay: false,
@@ -304,7 +316,7 @@ async function seedDemoData(users, now, overstayThresholdHours) {
       },
     });
   }
-  for (const demo of DEMO_COMPLETED_ENTRIES.slice(0, completedCreated)) {
+  for (const demo of completedEntries.slice(0, completedCreated)) {
     auditEntries.push({
       action: "VEHICLE_ENTRY",
       actorId: users.get(demo.entryOperator)._id,
@@ -441,5 +453,6 @@ module.exports = {
   SEED_ACCOUNTS,
   DEFAULT_SPOT_COUNTS,
   DEMO_ACTIVE_ENTRIES,
-  DEMO_COMPLETED_ENTRIES,
+  DEMO_DAILY_SCALES,
+  buildCompletedDemoEntries,
 };

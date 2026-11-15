@@ -51,10 +51,13 @@ async function getOccupancy({ now = new Date(), historyHours = 24 } = {}) {
   const history = [];
   for (let hoursAgo = historyHours; hoursAgo >= 0; hoursAgo -= 1) {
     const at = new Date(now.getTime() - hoursAgo * HOUR_MS);
-    const parked = overlapping.filter(
-      ({ entryTimestamp, exitTimestamp }) =>
-        entryTimestamp <= at && (!exitTimestamp || exitTimestamp > at),
-    ).length;
+    const parked = Math.min(
+      total,
+      overlapping.filter(
+        ({ entryTimestamp, exitTimestamp }) =>
+          entryTimestamp <= at && (!exitTimestamp || exitTimestamp > at),
+      ).length,
+    );
     history.push({ timestamp: at, occupied: parked, pct: percentage(parked, total) });
   }
 

@@ -303,7 +303,7 @@ function getSimulationState() {
   const occupied = parked.length + waitingExit.length;
   const now = new Date();
   const overstayReady = parked.filter(
-    (bot) => simulatedHoursBetween(bot.entryTimestamp, now) >= 8,
+    (bot) => simulatedHoursBetween(bot.entryTimestamp, now) >= 24,
   ).length;
 
   return {

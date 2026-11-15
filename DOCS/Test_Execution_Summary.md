@@ -59,7 +59,7 @@ Run locally on 2026-11-14 through `bash test.sh` (formatting, server tests, clie
 ### Server — Jest + Supertest
 
 - Test suites: 25 passed, 0 failed (25 total).
-- Tests: 272 passed, 0 failed (272 total).
+- Tests: 273 passed, 0 failed (273 total).
 
 ### Client — Jest + React Testing Library
 

@@ -7,13 +7,10 @@ const User = require("../../models/User");
 const Spot = require("../../models/Spot");
 const Transaction = require("../../models/Transaction");
 const AuditLog = require("../../models/AuditLog");
-const {
-  seedDatabase,
-  DEMO_ACTIVE_ENTRIES,
-  DEMO_COMPLETED_ENTRIES,
-} = require("../../seed");
+const { getOccupancy, getRevenue } = require("../../services/analyticsService");
+const { seedDatabase, DEMO_ACTIVE_ENTRIES, DEMO_DAILY_SCALES } = require("../../seed");
 
-jest.setTimeout(30000);
+jest.setTimeout(60000);
 
 describe("demo seed data", () => {
   let mongo;
@@ -33,18 +30,18 @@ describe("demo seed data", () => {
 
     expect(result.accounts).toBe(5);
     expect(result.spotCounts).toEqual({ "2W": 6, "4W": 10 });
-    expect(result.demo).toEqual({
-      active: DEMO_ACTIVE_ENTRIES.length,
-      completed: DEMO_COMPLETED_ENTRIES.length,
-      auditEntries: DEMO_ACTIVE_ENTRIES.length + DEMO_COMPLETED_ENTRIES.length * 2,
-    });
+    expect(result.demo.active).toBe(DEMO_ACTIVE_ENTRIES.length);
+    expect(result.demo.completed).toBeGreaterThan(80);
+    expect(result.demo.auditEntries).toBe(
+      DEMO_ACTIVE_ENTRIES.length + result.demo.completed * 2,
+    );
     await expect(User.countDocuments()).resolves.toBe(5);
     await expect(Spot.countDocuments()).resolves.toBe(16);
     await expect(Transaction.countDocuments({ status: "active" })).resolves.toBe(
       DEMO_ACTIVE_ENTRIES.length,
     );
     await expect(Transaction.countDocuments({ status: "completed" })).resolves.toBe(
-      DEMO_COMPLETED_ENTRIES.length,
+      result.demo.completed,
     );
     await expect(AuditLog.countDocuments()).resolves.toBe(result.demo.auditEntries);
     await expect(
@@ -52,18 +49,38 @@ describe("demo seed data", () => {
     ).resolves.toBe(0);
   });
 
+  test("the seeded week gives both admin charts realistic variation", async () => {
+    await seedDatabase({ password: "password123" });
+
+    const revenue = await getRevenue();
+    expect(revenue.byDay).toHaveLength(DEMO_DAILY_SCALES.length);
+    expect(revenue.total).toBeGreaterThan(30_000);
+    const dailyTotals = revenue.byDay.map((day) => day.total);
+    for (const total of dailyTotals) {
+      expect(total).toBeGreaterThan(0);
+      expect(total).toBeLessThan(11_000);
+    }
+    expect(dailyTotals.filter((total) => total > 3_000).length).toBeGreaterThanOrEqual(4);
+    expect(Math.max(...dailyTotals) - Math.min(...dailyTotals)).toBeGreaterThan(2_000);
+
+    const occupancy = await getOccupancy();
+    const busyHours = occupancy.history.filter((point) => point.occupied > 0);
+    expect(busyHours.length).toBeGreaterThan(4);
+    expect(occupancy.history.at(-1).pct).toBe(occupancy.totalPct);
+  });
+
   test("is idempotent when re-run", async () => {
     const result = await seedDatabase({ password: "password123" });
 
     expect(result.demo.active).toBe(DEMO_ACTIVE_ENTRIES.length);
-    expect(result.demo.completed).toBe(DEMO_COMPLETED_ENTRIES.length);
+    expect(result.demo.completed).toBeGreaterThan(80);
     await expect(User.countDocuments()).resolves.toBe(5);
     await expect(Spot.countDocuments()).resolves.toBe(16);
     await expect(Transaction.countDocuments({ status: "active" })).resolves.toBe(
       DEMO_ACTIVE_ENTRIES.length,
     );
     await expect(Transaction.countDocuments({ status: "completed" })).resolves.toBe(
-      DEMO_COMPLETED_ENTRIES.length,
+      result.demo.completed,
     );
   });
 
@@ -89,10 +106,10 @@ describe("demo seed data", () => {
     expect(result.resetDemo).toBe(true);
     await expect(Transaction.findById(stray._id)).resolves.toBeNull();
     await expect(Transaction.countDocuments()).resolves.toBe(
-      DEMO_ACTIVE_ENTRIES.length + DEMO_COMPLETED_ENTRIES.length,
+      result.demo.active + result.demo.completed,
     );
     await expect(Transaction.countDocuments({ status: "active" })).resolves.toBe(
-      DEMO_ACTIVE_ENTRIES.length,
+      result.demo.active,
     );
   });
 });

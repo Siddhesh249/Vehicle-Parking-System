@@ -73,7 +73,7 @@ The Admin dashboard can edit the fare tiers, first-hour policy, lost-ticket/over
 
 ## 8. Overstay handling
 
-- A vehicle is flagged "overstayed" once its simulated parked duration crosses the Admin-configured threshold. The default is 8 simulated hours (40 real seconds on the demo clock), and the server scans periodically and broadcasts new alerts to connected admin tabs.
+- A vehicle is flagged "overstayed" once its simulated parked duration crosses the Admin-configured threshold. The default is 24 simulated hours (2 real minutes on the demo clock), and the server scans periodically and broadcasts new alerts to connected admin tabs.
 - The threshold cannot be lower than the highest fare-tier threshold. For example, if the last tier begins at 6 hours, the overstay threshold must be at least 6 hours. Both configuration paths enforce this server-side.
 - The exit operator's lot map shows free spots grey, occupied spots green with a live hours timer, and overstayed spots blinking red. Clicking an overstayed spot sends an immediate notification to the Admin and displays “Notification sent to admin.”
 - The operator can also notify the Admin from an exit lookup; that notification is broadcast immediately.
@@ -94,6 +94,7 @@ The Admin dashboard can edit the fare tiers, first-hour policy, lost-ticket/over
 
 - Minimalist. Red-and-white theme with red accents. Explicitly **not** animation-heavy — "just a pretty visual."
 - Soft red radial shapes, a light diagonal grid and a red header accent sit behind every page, so wide layouts feel finished.
+- Admin dashboard panels are populated by a seeded week of sample sessions: daily revenue varies roughly between ₹4.5k and ₹7.5k, and the hourly occupancy history follows a realistic busy/quiet pattern.
 - The parking lot is shown as a live grid of spots, split visually into 2W and 4W zones: grey = free, green = occupied (with a live hours timer), blinking red = overstayed. Every spot also has a text status label, so status is never conveyed by colour alone.
 - Exit operators can click a blinking overstayed spot to notify the Admin; the first click disables repeat notifications for that vehicle and confirms “Notification sent to admin.”
 - All open sessions (both entry consoles, both exit consoles, admin dashboard) show an **identical, live-updating** view — the Socket.io broadcast requirement and the main "wow" moment for a demo.

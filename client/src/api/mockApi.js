@@ -26,7 +26,7 @@ const DEFAULT_FARE_CONFIG = {
 const HOUR_MS = 3600 * 1000;
 const REAL_SECONDS_PER_SIMULATED_HOUR = 5;
 const SIMULATED_HOUR_MS = REAL_SECONDS_PER_SIMULATED_HOUR * 1000;
-const DEFAULT_OVERSTAY_THRESHOLD_HOURS = 8;
+const DEFAULT_OVERSTAY_THRESHOLD_HOURS = 24;
 const MOCK_PASSWORD = "password123";
 const MOCK_ACCOUNTS = [
   { username: "entry1", role: "operator", gateId: "Entry-1" },
@@ -99,16 +99,46 @@ export function publicFareConfig(config, vehicleType) {
   };
 }
 
-// Demo-only trend data so the admin charts have something to draw.
+// Demo-only trend data so the admin charts have something to draw. The hourly
+// occupancy pattern looks like a real day (quiet at night, busy midday).
 function sampleHistory(currentPct, nowMs) {
-  return [38, 44, 52, 61, 58, 66, 72, currentPct].map((totalPct, i, all) => ({
-    timestamp: new Date(nowMs - (all.length - 1 - i) * HOUR_MS).toISOString(),
+  const pattern = [
+    58,
+    53,
+    49,
+    44,
+    39,
+    34,
+    29,
+    25,
+    21,
+    18,
+    20,
+    27,
+    36,
+    48,
+    59,
+    67,
+    63,
+    56,
+    51,
+    47,
+    43,
+    39,
+    35,
+    currentPct,
+  ];
+  const points = pattern.length;
+  return pattern.map((totalPct, i) => ({
+    timestamp: new Date(nowMs - (points - 1 - i) * HOUR_MS).toISOString(),
     totalPct,
   }));
 }
 
+const SAMPLE_DAILY_REVENUE = [6100, 8400, 5200, 9200, 6800, 7600];
+
 function sampleRevenueByDay(todayTotal, nowMs) {
-  return [420, 560, 380, 610, 530, 700, todayTotal].map((total, i, all) => ({
+  return [...SAMPLE_DAILY_REVENUE, todayTotal].map((total, i, all) => ({
     date: new Date(nowMs - (all.length - 1 - i) * 24 * HOUR_MS)
       .toISOString()
       .slice(0, 10),
@@ -566,11 +596,18 @@ export function createMockApi({ delayMs = 150 } = {}) {
 
     async getRevenue() {
       await wait();
-      const byZone = { "2W": 0, "4W": 0 };
-      for (const r of records)
-        if (r.status === "completed") byZone[r.zone] = round2(byZone[r.zone] + r.fare);
-      const total = round2(byZone["2W"] + byZone["4W"]);
-      return { total, byDay: sampleRevenueByDay(total, now()), byZone };
+      let liveTotal = 0;
+      for (const record of records) {
+        if (record.status === "completed") liveTotal += record.fare || 0;
+      }
+      const byDay = sampleRevenueByDay(round2(5900 + liveTotal), now());
+      const total = round2(byDay.reduce((sum, day) => sum + day.total, 0));
+      const twoWheeler = round2(total * 0.44);
+      return {
+        total,
+        byDay,
+        byZone: { "2W": twoWheeler, "4W": round2(total - twoWheeler) },
+      };
     },
 
     async getFareConfig() {

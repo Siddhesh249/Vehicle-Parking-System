@@ -17,7 +17,7 @@ describe("mock realtime (same interface as the Socket.io connection)", () => {
           }),
         ]),
         timeScale: { realSecondsPerHour: 5, hoursPerRealSecond: 0.2 },
-        overstayThresholdHours: 8,
+        overstayThresholdHours: 24,
       }),
     );
 

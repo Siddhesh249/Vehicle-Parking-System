@@ -7,7 +7,7 @@ const { writeAuditEntry } = require("./auditService");
 
 const ZONES = ["2W", "4W"];
 const OVERSTAY_THRESHOLD_KEY = "overstayThresholdHours";
-const DEFAULT_OVERSTAY_THRESHOLD_HOURS = 8;
+const DEFAULT_OVERSTAY_THRESHOLD_HOURS = 24;
 const MAX_OVERSTAY_THRESHOLD_HOURS = 100000;
 
 function serviceError(message, code, statusCode) {
